@@ -23,6 +23,7 @@ constexpr std::uint16_t kVid = 0x34b7;
 constexpr std::uint16_t kPid = 0xffff;
 constexpr unsigned char kEpOut = 0x01;
 constexpr unsigned char kEpIn = 0x81;
+constexpr auto kReconnectDelay = std::chrono::milliseconds(500);
 
 struct Options {
   std::uint32_t cycles = 0;
@@ -37,6 +38,7 @@ struct Options {
 
 struct Record {
   std::uint32_t cycle;
+  std::uint32_t session;
   std::uint32_t state_sequence;
   std::uint32_t command_sequence;
   std::uint64_t rtt_ns;
@@ -66,7 +68,7 @@ struct Record {
 };
 
 void WriteCsvHeader(std::ostream& csv) {
-  csv << "cycle,state_sequence,command_sequence,rtt_ns,release_jitter_ns,"
+  csv << "cycle,session,state_sequence,command_sequence,rtt_ns,release_jitter_ns,"
          "command_ready_ns,cycle_execution_ns,deadline_slack_ns,deadline_miss,"
          "solve_us,device_uptime_ms,control_state,valid_flags,contact_flags,"
 		 "motor_stale_mask,"
@@ -77,7 +79,8 @@ void WriteCsvHeader(std::ostream& csv) {
 }
 
 void WriteCsvRecord(std::ostream& csv, const Record& row) {
-  csv << row.cycle << ',' << row.state_sequence << ',' << row.command_sequence
+  csv << row.cycle << ',' << row.session << ',' << row.state_sequence << ','
+      << row.command_sequence
       << ',' << row.rtt_ns << ',' << row.release_jitter_ns << ','
       << row.command_ready_ns << ',' << row.cycle_execution_ns << ','
       << row.deadline_slack_ns << ',' << (row.deadline_slack_ns < 0 ? 1 : 0)
@@ -179,6 +182,7 @@ struct Runner {
   libusb_device_handle* device = nullptr;
   libusb_transfer* in_transfer = nullptr;
   libusb_transfer* out_transfer = nullptr;
+  bool interface_claimed = false;
   std::array<std::uint8_t, wbr::protocol::kStateFrameSize> in{};
   std::array<std::uint8_t, wbr::protocol::kCommandFrameSize> out{};
   wbr::control::LegMpc mpc;
@@ -195,6 +199,8 @@ struct Runner {
 	std::int64_t release_jitter_ns = 0;
   std::uint32_t command_sequence = 0;
 	std::uint32_t last_state_sequence = 0;
+  std::uint32_t session = 0;
+  std::uint32_t reconnect_count = 0;
   std::uint32_t completed = 0;
   std::uint32_t last_solve_us = 0;
 	std::uint8_t last_solver_flags = 0U;
@@ -202,6 +208,10 @@ struct Runner {
 	double last_solver_gradient_inf_norm = 0.0;
   bool in_complete = false;
   bool out_complete = false;
+  bool in_pending = false;
+  bool out_pending = false;
+  bool session_stopping = false;
+  bool reconnect_required = false;
   bool done = false;
   int result = 0;
 
@@ -253,7 +263,11 @@ void ReportTransferFailure(Runner& runner, const char* endpoint,
             << (static_cast<std::int64_t>(runner.cycle_start_ns) -
                 static_cast<std::int64_t>(runner.next_release_ns)) / 1000
             << '\n';
-  runner.result = 1;
+  if (transfer->status == LIBUSB_TRANSFER_NO_DEVICE) {
+    runner.reconnect_required = true;
+  } else if (!runner.session_stopping) {
+    runner.result = 1;
+  }
   runner.done = true;
 }
 
@@ -291,7 +305,12 @@ void FinishCycle(Runner& runner) {
 
 void LIBUSB_CALL OutComplete(libusb_transfer* transfer) {
   auto& runner = *static_cast<Runner*>(transfer->user_data);
+	runner.out_pending = false;
 	runner.out_complete_ns = wbr::realtime::MonotonicTimeNs();
+  if (runner.session_stopping &&
+      transfer->status == LIBUSB_TRANSFER_CANCELLED) {
+    return;
+  }
   if (transfer->status != LIBUSB_TRANSFER_COMPLETED ||
       transfer->actual_length != static_cast<int>(runner.out.size())) {
 	ReportTransferFailure(runner, "command OUT", transfer, runner.out.size());
@@ -303,7 +322,12 @@ void LIBUSB_CALL OutComplete(libusb_transfer* transfer) {
 
 void LIBUSB_CALL InComplete(libusb_transfer* transfer) {
   auto& runner = *static_cast<Runner*>(transfer->user_data);
+  runner.in_pending = false;
   const std::uint64_t received_ns = wbr::realtime::MonotonicTimeNs();
+  if (runner.session_stopping &&
+      transfer->status == LIBUSB_TRANSFER_CANCELLED) {
+    return;
+  }
   if (transfer->status != LIBUSB_TRANSFER_COMPLETED ||
       transfer->actual_length != static_cast<int>(runner.in.size())) {
 	ReportTransferFailure(runner, "state IN", transfer, runner.in.size());
@@ -367,7 +391,8 @@ void LIBUSB_CALL InComplete(libusb_transfer* transfer) {
   command.solve_time_us = runner.last_solve_us;
   runner.out = wbr::protocol::EncodeCommand(command);
 	const std::uint64_t command_ready_at_ns = wbr::realtime::MonotonicTimeNs();
-	runner.pending_record = {runner.completed, state.sequence, command.sequence,
+	runner.pending_record = {runner.completed, runner.session, state.sequence,
+                            command.sequence,
                             received_ns - runner.cycle_start_ns,
 							runner.release_jitter_ns,
 							command_ready_at_ns - runner.cycle_start_ns,
@@ -401,17 +426,32 @@ void SubmitCycle(Runner& runner) {
                                  &runner, 1000);
   int rc = libusb_submit_transfer(runner.in_transfer);
   if (rc != LIBUSB_SUCCESS) {
-    Fail(runner, std::string("submit IN: ") + libusb_error_name(rc));
+    if (rc == LIBUSB_ERROR_NO_DEVICE) {
+      std::cerr << "submit IN: LIBUSB_ERROR_NO_DEVICE; reconnecting\n";
+      runner.reconnect_required = true;
+      runner.done = true;
+    } else {
+      Fail(runner, std::string("submit IN: ") + libusb_error_name(rc));
+    }
     return;
   }
+  runner.in_pending = true;
   libusb_fill_interrupt_transfer(runner.out_transfer, runner.device, kEpOut,
                                  runner.out.data(), runner.out.size(), OutComplete,
                                  &runner, 1000);
   rc = libusb_submit_transfer(runner.out_transfer);
   if (rc != LIBUSB_SUCCESS) {
     libusb_cancel_transfer(runner.in_transfer);
-    Fail(runner, std::string("submit OUT: ") + libusb_error_name(rc));
+    if (rc == LIBUSB_ERROR_NO_DEVICE) {
+      std::cerr << "submit OUT: LIBUSB_ERROR_NO_DEVICE; reconnecting\n";
+      runner.reconnect_required = true;
+      runner.done = true;
+    } else {
+      Fail(runner, std::string("submit OUT: ") + libusb_error_name(rc));
+    }
+    return;
   }
+  runner.out_pending = true;
 }
 
 bool Parse(int argc, char** argv, Options& options) {
@@ -430,6 +470,109 @@ bool Parse(int argc, char** argv, Options& options) {
     else return false;
   }
   return options.period_us > 0 && options.mpc_divisor > 0;
+}
+
+bool OpenUsbSession(Runner& runner) {
+  bool waiting_message_printed = false;
+  while (g_stop_requested == 0) {
+    runner.device = libusb_open_device_with_vid_pid(runner.usb, kVid, kPid);
+    if (runner.device == nullptr) {
+      if (!waiting_message_printed) {
+        std::cerr << "USB device unavailable; waiting for 34b7:ffff\n";
+        waiting_message_printed = true;
+      }
+      std::this_thread::sleep_for(kReconnectDelay);
+      continue;
+    }
+
+    int configuration = 0;
+    int rc = libusb_get_configuration(runner.device, &configuration);
+    if (rc == LIBUSB_SUCCESS && configuration != 1) {
+      rc = libusb_set_configuration(runner.device, 1);
+    }
+    if (rc == LIBUSB_SUCCESS) {
+      rc = libusb_claim_interface(runner.device, 0);
+    }
+    if (rc != LIBUSB_SUCCESS) {
+      libusb_close(runner.device);
+      runner.device = nullptr;
+      if (rc == LIBUSB_ERROR_NO_DEVICE) {
+        std::this_thread::sleep_for(kReconnectDelay);
+        continue;
+      }
+      std::cerr << "USB session setup failed: " << libusb_error_name(rc) << '\n';
+      runner.result = 1;
+      return false;
+    }
+    runner.interface_claimed = true;
+    runner.in_transfer = libusb_alloc_transfer(0);
+    runner.out_transfer = libusb_alloc_transfer(0);
+    if (runner.in_transfer == nullptr || runner.out_transfer == nullptr) {
+      std::cerr << "USB transfer allocation failed\n";
+      runner.result = 1;
+      return false;
+    }
+
+    ++runner.session;
+    runner.done = false;
+    runner.reconnect_required = false;
+    runner.session_stopping = false;
+    runner.in_pending = false;
+    runner.out_pending = false;
+    runner.in_complete = false;
+    runner.out_complete = false;
+    runner.pending_record_valid = false;
+    runner.reference_height_initialized = false;
+    runner.last_state_sequence = 0U;
+    runner.last_solve_us = 0U;
+    runner.last_solver_flags = 0U;
+    runner.last_solver_iterations = 0U;
+    runner.last_solver_gradient_inf_norm = 0.0;
+    const auto& parameters = runner.mpc.parameters();
+    runner.previous_force.setConstant(
+        parameters.mass_kg * parameters.gravity_m_per_s2 / 2.0);
+    runner.reference.height_m = parameters.nominal_height_m;
+    std::cout << "USB MPC session=" << runner.session << " connected\n";
+    return true;
+  }
+  return false;
+}
+
+void ReleaseUsbSession(Runner& runner) {
+  runner.session_stopping = true;
+  if (runner.in_pending) {
+    const int rc = libusb_cancel_transfer(runner.in_transfer);
+    if (rc == LIBUSB_ERROR_NOT_FOUND) runner.in_pending = false;
+  }
+  if (runner.out_pending) {
+    const int rc = libusb_cancel_transfer(runner.out_transfer);
+    if (rc == LIBUSB_ERROR_NOT_FOUND) runner.out_pending = false;
+  }
+  while (runner.in_pending || runner.out_pending) {
+    timeval timeout{0, 100000};
+    const int rc = libusb_handle_events_timeout(runner.usb, &timeout);
+    if (rc != LIBUSB_SUCCESS && rc != LIBUSB_ERROR_INTERRUPTED) {
+      std::cerr << "warning: draining USB transfers failed: "
+                << libusb_error_name(rc) << '\n';
+      break;
+    }
+  }
+  if (runner.in_transfer != nullptr) {
+    libusb_free_transfer(runner.in_transfer);
+    runner.in_transfer = nullptr;
+  }
+  if (runner.out_transfer != nullptr) {
+    libusb_free_transfer(runner.out_transfer);
+    runner.out_transfer = nullptr;
+  }
+  if (runner.interface_claimed && runner.device != nullptr) {
+    (void)libusb_release_interface(runner.device, 0);
+  }
+  runner.interface_claimed = false;
+  if (runner.device != nullptr) {
+    libusb_close(runner.device);
+    runner.device = nullptr;
+  }
 }
 
 void SendDisabledBeforeExit(Runner& runner) {
@@ -495,35 +638,50 @@ int main(int argc, char** argv) {
     return 1;
   }
   if (libusb_init(&runner.usb) != LIBUSB_SUCCESS) return 1;
-  runner.device = libusb_open_device_with_vid_pid(runner.usb, kVid, kPid);
-  if (!runner.device) { std::cerr << "USB device unavailable\n"; return 1; }
-  int configuration = 0;
-  libusb_get_configuration(runner.device, &configuration);
-  if (configuration != 1 && libusb_set_configuration(runner.device, 1) != 0) return 1;
-  if (libusb_claim_interface(runner.device, 0) != 0) return 1;
-  runner.in_transfer = libusb_alloc_transfer(0);
-  runner.out_transfer = libusb_alloc_transfer(0);
-  wbr::protocol::CommandFrame initial;
-  initial.sequence = ++runner.command_sequence;
-  initial.mode = wbr::protocol::CommandMode::kDisabled;
-  runner.out = wbr::protocol::EncodeCommand(initial);
-  runner.next_release_ns = wbr::realtime::MonotonicTimeNs();
-  SubmitCycle(runner);
-  while (!runner.done) {
-    timeval timeout{1, 0};
-    const int rc = libusb_handle_events_timeout(runner.usb, &timeout);
-    if (rc != LIBUSB_SUCCESS && rc != LIBUSB_ERROR_INTERRUPTED) {
-      Fail(runner, std::string("USB event loop: ") + libusb_error_name(rc));
+  while (g_stop_requested == 0 && runner.result == 0 &&
+         (runner.options.cycles == 0U ||
+          runner.completed < runner.options.cycles)) {
+    if (!OpenUsbSession(runner)) {
+      ReleaseUsbSession(runner);
+      break;
     }
+    wbr::protocol::CommandFrame initial;
+    initial.sequence = ++runner.command_sequence;
+    initial.mode = wbr::protocol::CommandMode::kDisabled;
+    runner.out = wbr::protocol::EncodeCommand(initial);
+    runner.next_release_ns = wbr::realtime::MonotonicTimeNs();
+    SubmitCycle(runner);
+    while (!runner.done) {
+      timeval timeout{0, 100000};
+      const int rc = libusb_handle_events_timeout(runner.usb, &timeout);
+      if (rc == LIBUSB_ERROR_NO_DEVICE) {
+        runner.reconnect_required = true;
+        runner.done = true;
+      } else if (rc != LIBUSB_SUCCESS && rc != LIBUSB_ERROR_INTERRUPTED) {
+        Fail(runner, std::string("USB event loop: ") + libusb_error_name(rc));
+      }
+    }
+    if (!runner.reconnect_required && !runner.in_pending &&
+        !runner.out_pending) {
+      SendDisabledBeforeExit(runner);
+    } else if (!runner.reconnect_required) {
+      std::cerr << "warning: final Disabled command skipped while transfers "
+                   "remain pending; device watchdog remains responsible for "
+                   "fallback\n";
+    }
+    const bool reconnect = runner.reconnect_required &&
+                           g_stop_requested == 0 && runner.result == 0;
+    ReleaseUsbSession(runner);
+    if (!reconnect) break;
+    ++runner.reconnect_count;
+    std::cerr << "USB disconnected; local watchdog fallback active; "
+                 "waiting to reconnect\n";
+    std::this_thread::sleep_for(kReconnectDelay);
   }
-  SendDisabledBeforeExit(runner);
-  libusb_release_interface(runner.device, 0);
-  libusb_free_transfer(runner.in_transfer);
-  libusb_free_transfer(runner.out_transfer);
-  libusb_close(runner.device);
   libusb_exit(runner.usb);
   runner.csv_writer.Stop();
 	std::cout << "USB MPC cycles=" << runner.completed
+			<< " reconnects=" << runner.reconnect_count
 			<< " csv_dropped=" << runner.csv_writer.dropped();
 	if (!options.csv.empty()) std::cout << " output=" << options.csv;
 	std::cout << (g_stop_requested != 0 ? " stopped_by_signal" : "") << '\n';

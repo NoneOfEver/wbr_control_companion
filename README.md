@@ -66,6 +66,13 @@ sudo ./build/usb_mpc --active --csv /path/to/usb-mpc.csv
 `--cycles N`, `--period-us N`, `--mpc-divisor N`, `--cpu N` and
 `--priority N` remain available for controlled commissioning runs.
 
+If the USB device disconnects, the runtime immediately abandons the stale
+libusb session and relies on the lower-controller watchdog for local fallback.
+It then waits for the same VID/PID to reappear, opens a fresh session, sends a
+Disabled command first, and resumes Shadow or explicitly requested Active mode
+only after receiving a valid state frame. SIGINT and SIGTERM still terminate
+the process instead of reconnecting.
+
 ## EtherCAT benchmark and native MPC
 
 `ethercat_bench` provides one measurement path for SOEM, IgH generic and IgH
