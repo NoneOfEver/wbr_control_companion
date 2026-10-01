@@ -17,9 +17,11 @@ class LegMpc {
   using Input = Eigen::Matrix<double, kInputDimension, 1>;
 
   struct Parameters {
-    double mass_kg = 26.0;
-    double roll_inertia_kg_m2 = 0.64;
-    double half_track_m = 0.16;
+    // Keep these chassis constants synchronized with
+    // wbr_control/src/chassis_controller/modules/chassis/chassis_params.yaml.
+    double mass_kg = 12.054;
+    double roll_inertia_kg_m2 = 0.113303628;
+    double half_track_m = 0.215;
     double vertical_damping_ns_per_m = 8.0;
     double sample_time_s = 0.01;
     double nominal_height_m = 0.10;
@@ -31,7 +33,9 @@ class LegMpc {
     Input input_weights = (Input() << 0.05, 0.05).finished();
     double terminal_weight_scale = 5.0;
     int maximum_iterations = 100;
-    double convergence_tolerance = 1.0e-5;
+    // Maximum change in any horizon force between consecutive iterations.
+    // 0.01 N is already well below actuator/model uncertainty.
+    double convergence_tolerance = 1.0e-2;
   };
 
   struct Reference {

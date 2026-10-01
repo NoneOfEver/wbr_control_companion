@@ -107,6 +107,7 @@ std::array<std::uint8_t, kStateFrameSize> EncodeState(const StateFrame& state) {
   out[kHeaderSize + 40U] = state.control_state;
   out[kHeaderSize + 41U] = state.valid_flags;
   out[kHeaderSize + 42U] = state.contact_flags;
+  out[kHeaderSize + 43U] = state.motor_stale_mask;
   WriteLe16(&out[kStateFrameSize - 2U], CalculateCrc16(out.data(), out.size() - 2U));
   return out;
 }
@@ -150,6 +151,7 @@ DecodeError DecodeState(const std::uint8_t* data, std::size_t size,
   out.control_state = data[kHeaderSize + 40U];
   out.valid_flags = data[kHeaderSize + 41U];
   out.contact_flags = data[kHeaderSize + 42U];
+  out.motor_stale_mask = data[kHeaderSize + 43U];
   return DecodeError::kNone;
 }
 

@@ -11,12 +11,14 @@ Linux-side control processes for the wheel-legged robot.
 - 100 Hz sample rate and 15-step (0.15 s) prediction horizon;
 - 20-150 N force bounds and 30 N/sample slew bounds;
 - gravity feed-forward (`M*g/2` per leg) outside the optimized force deviation;
+- 0.01 N maximum inter-iteration force change as the convergence criterion;
 - constant or time-varying height/roll reference trajectories.
 
-The Q/R values in the document are not published. The defaults in
-`LegMpc::Parameters` are safe simulation starting values, not validated robot
-gains. Robot mass, inertia, geometry, constraints and weights must be checked
-against the real chassis before enabling motor output.
+The default mass (12.054 kg) and half track (0.215 m) mirror the current
+`wbr_control` chassis parameters. The roll inertia is the measured
+0.113303628 kg m^2 value. The Q/R values and vertical damping are still
+unverified tuning values. Keep the two repositories synchronized when chassis
+parameters change.
 
 Build and test inside the OrbStack Ubuntu machine:
 
@@ -39,6 +41,30 @@ interrupt transfer contains one complete frame: a 60-byte chassis state frame
 or a 40-byte force command frame. The command echoes the source state sequence
 and supports disabled, shadow and active modes. Transport and actuator enable
 logic are intentionally separate from the codec.
+
+## USB MPC runtime
+
+`usb_mpc` is the production USB control process. Its default schedule matches
+the validated configuration: a 100 Hz USB exchange and one MPC solve per
+exchange. It runs continuously until SIGINT or SIGTERM, pins the realtime loop
+to CPU 3 at FIFO priority 80, and starts in Shadow mode. Applying forces always
+requires the explicit `--active` option; the lower controller independently
+enforces its local operator-enable gate, sequence checks and watchdog.
+
+```sh
+sudo ./build/usb_mpc --active
+```
+
+CSV collection is disabled by default so normal operation does not generate
+continuous disk traffic. Enable the retained production diagnostics only when
+needed:
+
+```sh
+sudo ./build/usb_mpc --active --csv /path/to/usb-mpc.csv
+```
+
+`--cycles N`, `--period-us N`, `--mpc-divisor N`, `--cpu N` and
+`--priority N` remain available for controlled commissioning runs.
 
 ## EtherCAT benchmark and native MPC
 

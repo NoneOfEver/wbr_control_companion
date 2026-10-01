@@ -8,6 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(Threads REQUIRED)
+find_package(PkgConfig QUIET)
 
 option(WBR_ENABLE_IGH "Build the IgH EtherCAT backend when libethercat is available" ON)
 option(WBR_ENABLE_SOEM "Build the SOEM backend when libsoem is available" ON)
@@ -77,6 +78,19 @@ target_link_libraries(ethercat_mpc PRIVATE wbr_ethercat wbr_leg_mpc)
 
 add_executable(leg_mpc_demo src/main.cpp)
 target_link_libraries(leg_mpc_demo PRIVATE wbr_leg_mpc)
+
+if(PkgConfig_FOUND)
+  pkg_check_modules(LIBUSB QUIET IMPORTED_TARGET libusb-1.0)
+endif()
+if(LIBUSB_FOUND)
+  add_executable(usb_mpc src/usb_mpc.cpp)
+  target_link_libraries(usb_mpc PRIVATE
+    wbr_leg_mpc wbr_mpc_link wbr_ethercat PkgConfig::LIBUSB)
+  target_compile_options(usb_mpc PRIVATE -Wall -Wextra -Wpedantic)
+  message(STATUS "USB MPC runtime enabled")
+else()
+  message(STATUS "USB MPC runtime disabled: libusb-1.0 not found")
+endif()
 
 enable_testing()
 add_executable(leg_mpc_test tests/leg_mpc_test.cpp)

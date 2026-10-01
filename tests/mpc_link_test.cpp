@@ -22,6 +22,7 @@ int main() {
   state.valid_flags = wbr::protocol::kStateImuFresh |
                       wbr::protocol::kStateSupportForceValid;
   state.contact_flags = wbr::protocol::kContactLeft;
+  state.motor_stale_mask = 0x24U;
 
   auto state_bytes = wbr::protocol::EncodeState(state);
   wbr::protocol::StateFrame decoded_state;
@@ -29,6 +30,7 @@ int main() {
          wbr::protocol::DecodeError::kNone);
   assert(decoded_state.sequence == state.sequence);
   assert(decoded_state.right_support_force_n == state.right_support_force_n);
+  assert(decoded_state.motor_stale_mask == state.motor_stale_mask);
   state_bytes[30] ^= 0x80U;
   assert(wbr::protocol::DecodeState(state_bytes.data(), state_bytes.size(), decoded_state) ==
          wbr::protocol::DecodeError::kWrongCrc);

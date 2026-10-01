@@ -20,6 +20,8 @@ enum StateValidFlag : std::uint8_t {
   kStateSupportForceValid = 1U << 1,
   kStateMotorFeedbackValid = 1U << 2,
   kStateControlEnabled = 1U << 3,
+  kStateOperatorEnabled = 1U << 4,
+  kStateActiveApplied = 1U << 5,
 };
 
 enum ContactFlag : std::uint8_t {
@@ -63,6 +65,7 @@ struct StateFrame {
   std::uint8_t control_state = 0U;
   std::uint8_t valid_flags = 0U;
   std::uint8_t contact_flags = 0U;
+  std::uint8_t motor_stale_mask = 0U;
 };
 
 struct CommandFrame {
