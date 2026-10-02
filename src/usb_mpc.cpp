@@ -56,6 +56,7 @@ struct Record {
 	std::uint16_t solver_iterations;
 	double solver_gradient_inf_norm;
   float roll;
+  float roll_rate;
   float height;
   float left_leg_length;
   float right_leg_length;
@@ -73,7 +74,8 @@ void WriteCsvHeader(std::ostream& csv) {
          "solve_us,device_uptime_ms,control_state,valid_flags,contact_flags,"
 		 "motor_stale_mask,"
          "solver_flags,solver_iterations,solver_gradient_inf_norm,"
-         "roll,height,left_leg_length,right_leg_length,left_leg_rate,right_leg_rate,"
+         "roll,roll_rate,height,left_leg_length,right_leg_length,left_leg_rate,"
+         "right_leg_rate,"
          "estimated_left_support_force,estimated_right_support_force,"
          "commanded_left_force,commanded_right_force\n";
 }
@@ -91,7 +93,7 @@ void WriteCsvRecord(std::ostream& csv, const Record& row) {
       << static_cast<unsigned int>(row.motor_stale_mask) << ','
       << static_cast<unsigned int>(row.solver_flags) << ','
       << row.solver_iterations << ',' << row.solver_gradient_inf_norm << ','
-      << row.roll << ',' << row.height << ','
+      << row.roll << ',' << row.roll_rate << ',' << row.height << ','
       << row.left_leg_length << ',' << row.right_leg_length << ','
       << row.left_leg_rate << ',' << row.right_leg_rate << ','
       << row.estimated_left_support_force << ','
@@ -403,6 +405,7 @@ void LIBUSB_CALL InComplete(libusb_transfer* transfer) {
 							command.solver_flags, command.solver_iterations,
 							runner.last_solver_gradient_inf_norm,
 							state.roll_rad,
+							state.roll_rate_rad_s,
 							state.body_height_m,
 							state.left_leg_length_m, state.right_leg_length_m,
 							state.left_leg_rate_m_s, state.right_leg_rate_m_s,
