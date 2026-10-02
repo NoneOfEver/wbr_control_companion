@@ -42,8 +42,11 @@ void LegMpc::BuildModelAndCost() {
          0.0, 1.0, 0.0, 0.0,
          0.0, 0.0, 1.0, dt,
          0.0, 0.0, 0.0, 1.0 - damping * dt;
+  // Match the chassis roll convention used by the MCU controller: increasing
+  // left support force produces positive roll acceleration, while increasing
+  // right support force produces negative roll acceleration.
   bd_ << 0.0, 0.0,
-         -roll_gain * dt, roll_gain * dt,
+         roll_gain * dt, -roll_gain * dt,
          0.0, 0.0,
          vertical_gain * dt, vertical_gain * dt;
 

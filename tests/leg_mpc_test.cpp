@@ -16,6 +16,17 @@ int main() {
   wbr::control::LegMpc::Input previous =
       wbr::control::LegMpc::Input::Constant(hover);
 
+  // With the MCU's roll convention, a positive roll error must be corrected
+  // by reducing left support and increasing right support.
+  {
+    wbr::control::LegMpc direction_controller;
+    wbr::control::LegMpc::State direction_state;
+    direction_state << 0.10, 0.0, p.nominal_height_m, 0.0;
+    const auto direction_result =
+        direction_controller.Solve(direction_state, reference, previous);
+    assert(direction_result.left_force_n < direction_result.right_force_n);
+  }
+
   const double initial_roll = std::abs(state(0));
   for (int step = 0; step < 300; ++step) {
     const auto result = controller.Solve(state, reference, previous);
