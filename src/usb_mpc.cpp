@@ -58,6 +58,7 @@ struct Record {
   float roll;
   float roll_rate;
   float height;
+  float target_height;
   float left_leg_length;
   float right_leg_length;
   float left_leg_rate;
@@ -74,7 +75,7 @@ void WriteCsvHeader(std::ostream& csv) {
          "solve_us,device_uptime_ms,control_state,valid_flags,contact_flags,"
 		 "motor_stale_mask,"
          "solver_flags,solver_iterations,solver_gradient_inf_norm,"
-         "roll,roll_rate,height,left_leg_length,right_leg_length,left_leg_rate,"
+         "roll,roll_rate,height,target_height,left_leg_length,right_leg_length,left_leg_rate,"
          "right_leg_rate,"
          "estimated_left_support_force,estimated_right_support_force,"
          "commanded_left_force,commanded_right_force\n";
@@ -94,6 +95,7 @@ void WriteCsvRecord(std::ostream& csv, const Record& row) {
       << static_cast<unsigned int>(row.solver_flags) << ','
       << row.solver_iterations << ',' << row.solver_gradient_inf_norm << ','
       << row.roll << ',' << row.roll_rate << ',' << row.height << ','
+      << row.target_height << ','
       << row.left_leg_length << ',' << row.right_leg_length << ','
       << row.left_leg_rate << ',' << row.right_leg_rate << ','
       << row.estimated_left_support_force << ','
@@ -353,13 +355,18 @@ void LIBUSB_CALL InComplete(libusb_transfer* transfer) {
   command.valid_for_ms = 30;
   command.left_support_force_n = static_cast<float>(runner.previous_force(0));
   command.right_support_force_n = static_cast<float>(runner.previous_force(1));
-	if (!runner.reference_height_initialized &&
-		std::isfinite(state.body_height_m) && state.body_height_m > 0.0F &&
-		(state.valid_flags & wbr::protocol::kStateMotorFeedbackValid) != 0U) {
-		runner.reference.height_m = state.body_height_m;
+	const bool motor_feedback_valid =
+		(state.valid_flags & wbr::protocol::kStateMotorFeedbackValid) != 0U;
+	if (motor_feedback_valid && std::isfinite(state.target_body_height_m) &&
+		state.target_body_height_m >= 0.15F &&
+		state.target_body_height_m <= 0.33F) {
+		runner.reference.height_m = state.target_body_height_m;
 		runner.reference_height_initialized = true;
-		std::cout << "MPC height reference latched=" << runner.reference.height_m
-				  << " m from state_sequence=" << state.sequence << '\n';
+	} else if (!runner.reference_height_initialized && motor_feedback_valid &&
+		std::isfinite(state.body_height_m) && state.body_height_m > 0.0F) {
+		// Fail softly during startup: hold the measured height until the first
+		// valid v2 target arrives instead of commanding the nominal model height.
+		runner.reference.height_m = state.body_height_m;
 	}
 
   if ((runner.completed % runner.options.mpc_divisor) == 0U) {
@@ -407,6 +414,7 @@ void LIBUSB_CALL InComplete(libusb_transfer* transfer) {
 							state.roll_rad,
 							state.roll_rate_rad_s,
 							state.body_height_m,
+							static_cast<float>(runner.reference.height_m),
 							state.left_leg_length_m, state.right_leg_length_m,
 							state.left_leg_rate_m_s, state.right_leg_rate_m_s,
 							state.left_support_force_n, state.right_support_force_n,

@@ -36,11 +36,12 @@ timeout and a gravity-feed-forward fallback before real actuators are enabled.
 
 ## MPC Link protocol
 
-`wbr_mpc_link` implements the host-side codec for MPC Link v1. Each USB
-interrupt transfer contains one complete frame: a 60-byte chassis state frame
-or a 40-byte force command frame. The command echoes the source state sequence
-and supports disabled, shadow and active modes. Transport and actuator enable
-logic are intentionally separate from the codec.
+`wbr_mpc_link` implements the host-side codec for MPC Link v2. Each USB
+interrupt transfer contains one complete frame: a 64-byte chassis state frame
+or a 40-byte force command frame. The state includes the MCU's live target body
+height so MPC can track operator height changes while active. The command echoes
+the source state sequence and supports disabled, shadow and active modes.
+Transport and actuator enable logic are intentionally separate from the codec.
 
 ## USB MPC runtime
 
