@@ -29,7 +29,7 @@ class LegMpc {
     double minimum_force_n = 20.0;
     double maximum_force_n = 150.0;
     double maximum_force_step_n = 30.0;
-    State state_weights = (State() << 800.0, 30.0, 1200.0, 80.0).finished();
+    State state_weights = (State() << 4800.0, 30.0, 1200.0, 80.0).finished();
     Input input_weights = (Input() << 0.05, 0.05).finished();
     double terminal_weight_scale = 5.0;
     int maximum_iterations = 100;
