@@ -9,9 +9,10 @@ Linux-side control processes for the wheel-legged robot.
 - state: `[roll, roll_rate, body_height, body_height_rate]`;
 - output: absolute left/right normal support force in newtons;
 - 100 Hz sample rate and 15-step (0.15 s) prediction horizon;
-- 20-150 N force bounds and 30 N/sample slew bounds;
+- 20-200 N force bounds and 30 N/sample slew bounds;
 - gravity feed-forward (`M*g/2` per leg) outside the optimized force deviation;
-- 0.01 N maximum inter-iteration force change as the convergence criterion;
+- native OSQP v1.0.0 solves the complete 30-variable QP with all force and slew constraints;
+- QP primal/dual termination tolerance 1e-6 and independent full-horizon feasibility tolerance 1e-3 N;
 - constant or time-varying height/roll reference trajectories.
 
 The default mass (12.054 kg) and half track (0.215 m) mirror the current
@@ -99,3 +100,44 @@ sequence would otherwise delay fallback until timeout.
 
 Build output enables IgH and SOEM automatically when their headers and
 libraries are found.
+
+## Complete constrained leg QP (2026-10-08)
+
+The decision vector contains force deviations from M*g/2 for both legs over
+15 stages. The constraint matrix is [I; D], where D contains the first force
+and every adjacent-stage difference. Absolute bounds are shifted by M*g/2;
+the first two D bounds are updated relative to the previous output command.
+All 60 constraint rows are optimized simultaneously. There is no sequential
+force clipping in the optimizer.
+
+Each LegMpc owns a separate OSQP workspace, initialized once. H and A remain
+constant for the controller's parameters; online calls update q/l/u and warm
+start the shifted primal trajectory. The maximum iteration count is 2000.
+Only OSQP_SOLVED with finite output and a checked feasible full trajectory is
+marked converged. Invalid input, iteration exhaustion or solver errors return
+bounded previous commands as a diagnostic fallback, with converged=false and
+used_fallback=true. USB/EtherCAT propagate the fallback flag; the MCU's normal
+convergence gate remains responsible for rejecting an unqualified Active command.
+The legacy gradient_inf_norm result now holds the dual residual, and the USB
+CSV column is named solver_dual_residual.
+
+CMake builds the native static OSQP dependency from upstream v1.0.0 (Apache-2.0).
+The first configure needs network access; later builds use the cached source.
+For an existing source checkout, pass -DFETCHCONTENT_SOURCE_DIR_OSQP=/absolute/path.
+Test assertions remain enabled even in Release builds.
+
+Validation on wbr-nuc: all four tests passed, including the previously failing
+combined roll/height recovery and the MCU-rate 0.20 -> 0.30 -> 0.18 m target ramp.
+Independent SciPy SLSQP comparison on a slew-constrained case differed by
+0.000113 N at most across the complete trajectory. On CPU 2 in ordinary
+scheduling, 5000 representative QPs measured mean 54.2 us, P99 61.1 us, maximum
+97.1 us, no failures and no 10 ms overruns. This is a CPU-only, unpaced timing
+measurement, excluding communication, not a hardware control validation or WCET.
+
+Optional verification/benchmark commands:
+
+```sh
+ctest --test-dir build --output-on-failure
+python3 tests/verify_leg_qp.py ./build/leg_mpc_qp_test # needs numpy and scipy
+./build/leg_mpc_benchmark
+```

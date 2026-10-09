@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <memory>
 
 #include <Eigen/Core>
 
@@ -27,15 +28,22 @@ class LegMpc {
     double nominal_height_m = 0.10;
     double gravity_m_per_s2 = 9.80665;
     double minimum_force_n = 20.0;
-    double maximum_force_n = 150.0;
+    double maximum_force_n = 200.0;
     double maximum_force_step_n = 30.0;
-    State state_weights = (State() << 800.0, 30.0, 1200.0, 80.0).finished();
-    Input input_weights = (Input() << 0.05, 0.05).finished();
+    // Q 顺序：[roll角度误差(rad), roll角速度误差(rad/s),
+    //          高度误差(m), 高度速度误差(m/s)]。
+    // 每项代价 = 权重 * 对应误差的平方；增大权重会更重视该项跟踪。
+    // 速度目标为0时，提高速度权重通常更抑制运动；单位不同不能直接比大小。
+    State state_weights = (State() << 1200.0, 30.0, 12000.0, 80.0).finished();
+    // R 顺序：[左腿支撑力偏差(N), 右腿支撑力偏差(N)]。
+    // 力偏差相对重力前馈 M*g/2，非相邻周期的力变化。
+    // 增大R更抑制用力，减小R通常使控制更积极；仍受力和变化率约束。
+    Input input_weights = (Input() << 0.025, 0.025).finished();
     double terminal_weight_scale = 5.0;
-    int maximum_iterations = 100;
-    // Maximum change in any horizon force between consecutive iterations.
-    // 0.01 N is already well below actuator/model uncertainty.
-    double convergence_tolerance = 1.0e-2;
+    int maximum_iterations = 2000;
+    // QP primal/dual termination tolerance; no inter-iteration force criterion.
+    double convergence_tolerance = 1.0e-6;
+    double constraint_tolerance_n = 1.0e-3;
   };
 
   struct Reference {
@@ -50,11 +58,20 @@ class LegMpc {
     int iterations = 0;
     double left_force_n = 0.0;
     double right_force_n = 0.0;
-    double gradient_inf_norm = 0.0;
+    double gradient_inf_norm = 0.0; // Legacy field: now the OSQP dual residual.
+    bool used_fallback = false;
+    int solver_status = 0;
+    double primal_residual = 0.0;
+    double dual_residual = 0.0;
+    double constraint_violation_n = 0.0;
+    std::array<Input, kHorizon> predicted_force_n{};
   };
 
   LegMpc();
   explicit LegMpc(Parameters parameters);
+  ~LegMpc();
+  LegMpc(const LegMpc&) = delete;
+  LegMpc& operator=(const LegMpc&) = delete;
 
   Result Solve(const State& measured_state, const Reference& reference,
                const Input& previously_applied_force_n);
@@ -79,8 +96,8 @@ class LegMpc {
       Eigen::Matrix<double, kPredictionDimension, kStateDimension>;
 
   void BuildModelAndCost();
-  Decision ProjectForces(const Decision& force_deviation,
-                         const Input& previous_force_n) const;
+  struct QpWorkspace;
+  std::unique_ptr<QpWorkspace> qp_;
   Prediction MakeReferenceVector(
       const std::array<Reference, kHorizon + 1>& trajectory) const;
 
@@ -92,7 +109,6 @@ class LegMpc {
   Eigen::Matrix<double, kPredictionDimension, kPredictionDimension> q_bar_ =
       Eigen::Matrix<double, kPredictionDimension, kPredictionDimension>::Zero();
   Hessian hessian_ = Hessian::Zero();
-  double step_size_ = 0.0;
   Decision warm_start_ = Decision::Zero();
 };
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(wbr_control_companion LANGUAGES CXX)
+project(wbr_control_companion LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,6 +10,22 @@ find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(Threads REQUIRED)
 find_package(PkgConfig QUIET)
 
+# Native OSQP: one setup per controller, then only q/l/u updates online.
+include(FetchContent)
+set(OSQP_BUILD_SHARED_LIB OFF CACHE BOOL "" FORCE)
+set(OSQP_BUILD_DEMO_EXE OFF CACHE BOOL "" FORCE)
+set(OSQP_BUILD_UNITTESTS OFF CACHE BOOL "" FORCE)
+set(OSQP_CODEGEN OFF CACHE BOOL "" FORCE)
+set(OSQP_ENABLE_DERIVATIVES OFF CACHE BOOL "" FORCE)
+set(OSQP_ENABLE_INTERRUPT OFF CACHE BOOL "" FORCE)
+set(OSQP_USE_FLOAT OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(osqp
+    GIT_REPOSITORY https://github.com/osqp/osqp.git
+    GIT_TAG v1.0.0
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(osqp)
+
 option(WBR_ENABLE_IGH "Build the IgH EtherCAT backend when libethercat is available" ON)
 option(WBR_ENABLE_SOEM "Build the SOEM backend when libsoem is available" ON)
 
@@ -17,7 +33,7 @@ add_library(wbr_leg_mpc
     src/leg_mpc.cpp
 )
 target_include_directories(wbr_leg_mpc PUBLIC include)
-target_link_libraries(wbr_leg_mpc PUBLIC Eigen3::Eigen)
+target_link_libraries(wbr_leg_mpc PUBLIC Eigen3::Eigen PRIVATE osqpstatic)
 target_compile_features(wbr_leg_mpc PUBLIC cxx_std_17)
 target_compile_options(wbr_leg_mpc PRIVATE -Wall -Wextra -Wpedantic)
 
@@ -104,3 +120,13 @@ add_test(NAME mpc_link_test COMMAND mpc_link_test)
 add_executable(ethercat_protocol_test tests/ethercat_protocol_test.cpp)
 target_link_libraries(ethercat_protocol_test PRIVATE wbr_ethercat)
 add_test(NAME ethercat_protocol_test COMMAND ethercat_protocol_test)
+
+add_executable(leg_mpc_qp_test tests/leg_mpc_qp_test.cpp)
+target_link_libraries(leg_mpc_qp_test PRIVATE wbr_leg_mpc)
+add_test(NAME leg_mpc_qp_test COMMAND leg_mpc_qp_test)
+add_executable(leg_mpc_benchmark tests/leg_mpc_benchmark.cpp)
+target_link_libraries(leg_mpc_benchmark PRIVATE wbr_leg_mpc)
+# Assertions are the test checks, including when the application uses Release.
+foreach(test_target leg_mpc_test leg_mpc_qp_test mpc_link_test ethercat_protocol_test)
+  target_compile_options(${test_target} PRIVATE -UNDEBUG)
+endforeach()
