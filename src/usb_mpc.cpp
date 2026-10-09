@@ -54,7 +54,7 @@ struct Record {
 	std::uint8_t motor_stale_mask;
 	std::uint8_t solver_flags;
 	std::uint16_t solver_iterations;
-	double solver_gradient_inf_norm;
+	double solver_dual_residual;
   float roll;
   float roll_rate;
   float height;
@@ -66,6 +66,10 @@ struct Record {
   float estimated_right_support_force;
   float left_force;
   float right_force;
+  float target_height;
+  double reference_height;
+  bool height_target_valid;
+  std::uint8_t command_mode;
 };
 
 void WriteCsvHeader(std::ostream& csv) {
@@ -73,11 +77,11 @@ void WriteCsvHeader(std::ostream& csv) {
          "command_ready_ns,cycle_execution_ns,deadline_slack_ns,deadline_miss,"
          "solve_us,device_uptime_ms,control_state,valid_flags,contact_flags,"
 		 "motor_stale_mask,"
-         "solver_flags,solver_iterations,solver_gradient_inf_norm,"
+         "solver_flags,solver_iterations,solver_dual_residual,"
          "roll,roll_rate,height,left_leg_length,right_leg_length,left_leg_rate,"
          "right_leg_rate,"
          "estimated_left_support_force,estimated_right_support_force,"
-         "commanded_left_force,commanded_right_force\n";
+         "commanded_left_force,commanded_right_force,target_height,reference_height,height_target_valid,command_mode\n";
 }
 
 void WriteCsvRecord(std::ostream& csv, const Record& row) {
@@ -92,13 +96,15 @@ void WriteCsvRecord(std::ostream& csv, const Record& row) {
       << static_cast<unsigned int>(row.contact_flags) << ','
       << static_cast<unsigned int>(row.motor_stale_mask) << ','
       << static_cast<unsigned int>(row.solver_flags) << ','
-      << row.solver_iterations << ',' << row.solver_gradient_inf_norm << ','
+      << row.solver_iterations << ',' << row.solver_dual_residual << ','
       << row.roll << ',' << row.roll_rate << ',' << row.height << ','
       << row.left_leg_length << ',' << row.right_leg_length << ','
       << row.left_leg_rate << ',' << row.right_leg_rate << ','
       << row.estimated_left_support_force << ','
       << row.estimated_right_support_force << ','
-      << row.left_force << ',' << row.right_force << '\n';
+      << row.left_force << ',' << row.right_force << ',' << row.target_height << ','
+      << row.reference_height << ',' << row.height_target_valid << ','
+      << static_cast<unsigned int>(row.command_mode) << '\n';
 }
 
 class CsvWriter {
@@ -207,7 +213,7 @@ struct Runner {
   std::uint32_t last_solve_us = 0;
 	std::uint8_t last_solver_flags = 0U;
 	std::uint16_t last_solver_iterations = 0U;
-	double last_solver_gradient_inf_norm = 0.0;
+	double last_solver_dual_residual = 0.0;
   bool in_complete = false;
   bool out_complete = false;
   bool in_pending = false;
@@ -353,13 +359,19 @@ void LIBUSB_CALL InComplete(libusb_transfer* transfer) {
   command.valid_for_ms = 30;
   command.left_support_force_n = static_cast<float>(runner.previous_force(0));
   command.right_support_force_n = static_cast<float>(runner.previous_force(1));
-	if (!runner.reference_height_initialized &&
-		std::isfinite(state.body_height_m) && state.body_height_m > 0.0F &&
-		(state.valid_flags & wbr::protocol::kStateMotorFeedbackValid) != 0U) {
+	const bool motor_feedback_valid =
+		(state.valid_flags & wbr::protocol::kStateMotorFeedbackValid) != 0U;
+	const bool height_target_valid = motor_feedback_valid &&
+		std::isfinite(state.target_body_height_m) &&
+		state.target_body_height_m >= 0.15F && state.target_body_height_m <= 0.33F;
+	if (height_target_valid) {
+		runner.reference.height_m = state.target_body_height_m;
+		runner.reference_height_initialized = true;
+	} else if (!runner.reference_height_initialized && motor_feedback_valid &&
+		std::isfinite(state.body_height_m) && state.body_height_m > 0.0F) {
+		// Until a valid MCU target arrives, hold the startup measured height.
 		runner.reference.height_m = state.body_height_m;
 		runner.reference_height_initialized = true;
-		std::cout << "MPC height reference latched=" << runner.reference.height_m
-				  << " m from state_sequence=" << state.sequence << '\n';
 	}
 
   if ((runner.completed % runner.options.mpc_divisor) == 0U) {
@@ -377,9 +389,10 @@ void LIBUSB_CALL InComplete(libusb_transfer* transfer) {
     if (solution.converged) {
 		runner.last_solver_flags |= wbr::protocol::kSolverConverged;
 	}
+    if (solution.used_fallback) runner.last_solver_flags |= wbr::protocol::kSolverUsedFallback;
     if (finite) runner.last_solver_flags |= wbr::protocol::kSolverInputFinite;
     runner.last_solver_iterations = static_cast<std::uint16_t>(solution.iterations);
-	runner.last_solver_gradient_inf_norm = solution.gradient_inf_norm;
+	runner.last_solver_dual_residual = solution.gradient_inf_norm;
     if (finite) {
       runner.previous_force << solution.left_force_n, solution.right_force_n;
       command.left_support_force_n = static_cast<float>(solution.left_force_n);
@@ -403,7 +416,7 @@ void LIBUSB_CALL InComplete(libusb_transfer* transfer) {
 							state.control_state, state.valid_flags, state.contact_flags,
 							state.motor_stale_mask,
 							command.solver_flags, command.solver_iterations,
-							runner.last_solver_gradient_inf_norm,
+							runner.last_solver_dual_residual,
 							state.roll_rad,
 							state.roll_rate_rad_s,
 							state.body_height_m,
@@ -411,7 +424,9 @@ void LIBUSB_CALL InComplete(libusb_transfer* transfer) {
 							state.left_leg_rate_m_s, state.right_leg_rate_m_s,
 							state.left_support_force_n, state.right_support_force_n,
 							command.left_support_force_n,
-                            command.right_support_force_n};
+                            command.right_support_force_n, state.target_body_height_m,
+                            runner.reference.height_m, height_target_valid,
+                            static_cast<std::uint8_t>(command.mode)};
 	runner.pending_record_valid = true;
   runner.in_complete = true;
 	runner.in_complete_ns = command_ready_at_ns;
@@ -530,7 +545,7 @@ bool OpenUsbSession(Runner& runner) {
     runner.last_solve_us = 0U;
     runner.last_solver_flags = 0U;
     runner.last_solver_iterations = 0U;
-    runner.last_solver_gradient_inf_norm = 0.0;
+    runner.last_solver_dual_residual = 0.0;
     const auto& parameters = runner.mpc.parameters();
     runner.previous_force.setConstant(
         parameters.mass_kg * parameters.gravity_m_per_s2 / 2.0);

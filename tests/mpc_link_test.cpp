@@ -12,6 +12,7 @@ int main() {
   state.roll_rate_rad_s = 0.75F;
   state.body_height_m = 0.24F;
   state.body_height_rate_m_s = -0.31F;
+  state.target_body_height_m = 0.27F;
   state.left_leg_length_m = 0.23F;
   state.left_leg_rate_m_s = 0.12F;
   state.right_leg_length_m = 0.25F;
@@ -29,6 +30,7 @@ int main() {
   assert(wbr::protocol::DecodeState(state_bytes.data(), state_bytes.size(), decoded_state) ==
          wbr::protocol::DecodeError::kNone);
   assert(decoded_state.sequence == state.sequence);
+  assert(decoded_state.target_body_height_m == state.target_body_height_m);
   assert(decoded_state.right_support_force_n == state.right_support_force_n);
   assert(decoded_state.motor_stale_mask == state.motor_stale_mask);
   state_bytes[30] ^= 0x80U;
@@ -57,5 +59,5 @@ int main() {
   assert(decoded_command.source_state_sequence == command.source_state_sequence);
   assert(decoded_command.left_support_force_n == command.left_support_force_n);
   assert(decoded_command.mode == command.mode);
-  std::cout << "MPC Link v1 codec passed\n";
+  std::cout << "MPC Link v2 codec passed\n";
 }

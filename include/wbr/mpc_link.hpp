@@ -8,11 +8,11 @@ namespace wbr::protocol {
 
 constexpr std::uint8_t kMagic0 = 'W';
 constexpr std::uint8_t kMagic1 = 'M';
-constexpr std::uint8_t kVersion = 1U;
+constexpr std::uint8_t kVersion = 2U;
 constexpr std::uint8_t kStateMessageType = 0x10U;
 constexpr std::uint8_t kCommandMessageType = 0x20U;
 constexpr std::size_t kHeaderSize = 14U;
-constexpr std::size_t kStateFrameSize = 60U;
+constexpr std::size_t kStateFrameSize = 64U;
 constexpr std::size_t kCommandFrameSize = 40U;
 
 enum StateValidFlag : std::uint8_t {
@@ -56,6 +56,7 @@ struct StateFrame {
   float roll_rate_rad_s = 0.0F;
   float body_height_m = 0.0F;
   float body_height_rate_m_s = 0.0F;
+  float target_body_height_m = 0.0F;
   float left_leg_length_m = 0.0F;
   float left_leg_rate_m_s = 0.0F;
   float right_leg_length_m = 0.0F;

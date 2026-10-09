@@ -7,7 +7,7 @@ namespace {
 
 constexpr std::uint16_t kCrcInitial = 0xffffU;
 constexpr std::uint16_t kCrcPolynomial = 0x8408U;
-constexpr std::size_t kStatePayloadSize = 44U;
+constexpr std::size_t kStatePayloadSize = 48U;
 constexpr std::size_t kCommandPayloadSize = 24U;
 
 void WriteLe16(std::uint8_t* out, std::uint16_t value) {
@@ -96,18 +96,19 @@ std::array<std::uint8_t, kStateFrameSize> EncodeState(const StateFrame& state) {
                state.sender_uptime_ms);
   const float values[] = {
       state.roll_rad, state.roll_rate_rad_s, state.body_height_m,
-      state.body_height_rate_m_s, state.left_leg_length_m,
+      state.body_height_rate_m_s, state.target_body_height_m,
+      state.left_leg_length_m,
       state.left_leg_rate_m_s, state.right_leg_length_m,
       state.right_leg_rate_m_s, state.left_support_force_n,
       state.right_support_force_n,
   };
-  for (std::size_t i = 0; i < 10U; ++i) {
+  for (std::size_t i = 0; i < 11U; ++i) {
     WriteLeFloat(&out[kHeaderSize + i * 4U], values[i]);
   }
-  out[kHeaderSize + 40U] = state.control_state;
-  out[kHeaderSize + 41U] = state.valid_flags;
-  out[kHeaderSize + 42U] = state.contact_flags;
-  out[kHeaderSize + 43U] = state.motor_stale_mask;
+  out[kHeaderSize + 44U] = state.control_state;
+  out[kHeaderSize + 45U] = state.valid_flags;
+  out[kHeaderSize + 46U] = state.contact_flags;
+  out[kHeaderSize + 47U] = state.motor_stale_mask;
   WriteLe16(&out[kStateFrameSize - 2U], CalculateCrc16(out.data(), out.size() - 2U));
   return out;
 }
@@ -140,18 +141,19 @@ DecodeError DecodeState(const std::uint8_t* data, std::size_t size,
   out.sender_uptime_ms = ReadLe32(&data[10]);
   float* values[] = {
       &out.roll_rad, &out.roll_rate_rad_s, &out.body_height_m,
-      &out.body_height_rate_m_s, &out.left_leg_length_m,
+      &out.body_height_rate_m_s, &out.target_body_height_m,
+      &out.left_leg_length_m,
       &out.left_leg_rate_m_s, &out.right_leg_length_m,
       &out.right_leg_rate_m_s, &out.left_support_force_n,
       &out.right_support_force_n,
   };
-  for (std::size_t i = 0; i < 10U; ++i) {
+  for (std::size_t i = 0; i < 11U; ++i) {
     *values[i] = ReadLeFloat(&data[kHeaderSize + i * 4U]);
   }
-  out.control_state = data[kHeaderSize + 40U];
-  out.valid_flags = data[kHeaderSize + 41U];
-  out.contact_flags = data[kHeaderSize + 42U];
-  out.motor_stale_mask = data[kHeaderSize + 43U];
+  out.control_state = data[kHeaderSize + 44U];
+  out.valid_flags = data[kHeaderSize + 45U];
+  out.contact_flags = data[kHeaderSize + 46U];
+  out.motor_stale_mask = data[kHeaderSize + 47U];
   return DecodeError::kNone;
 }
 

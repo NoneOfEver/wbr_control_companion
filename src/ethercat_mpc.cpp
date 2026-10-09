@@ -241,6 +241,7 @@ int main(int argc, char** argv) {
       output.mpc.solve_time_us = solve_time_us;
       output.mpc.mode_and_flags = options.mode;
       if (result.converged) output.mpc.mode_and_flags |= wbr::ethercat::kMpcConverged;
+      if (result.used_fallback) output.mpc.mode_and_flags |= wbr::ethercat::kMpcUsedFallback;
       if (finite) output.mpc.mode_and_flags |= wbr::ethercat::kMpcInputFinite;
       if (!result.converged || !finite) {
         wbr::ethercat::DisableMpcCommand(

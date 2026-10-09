@@ -50,6 +50,24 @@ int main() {
 
   assert(std::abs(state(0)) < 0.2 * initial_roll);
   assert(std::abs(state(2) - reference.height_m) < 0.005);
+  // MCU-like 0.24 m/s ramp, followed by a hold, at the 100 Hz MPC rate.
+  for (double target : {0.20, 0.30, 0.18}) {
+    for (int step = 0; step < 400; ++step) {
+      reference.height_m += std::clamp(target - reference.height_m,
+          -0.24 * p.sample_time_s, 0.24 * p.sample_time_s);
+      const auto result = controller.Solve(state, reference, previous);
+      assert(std::isfinite(result.left_force_n) && std::isfinite(result.right_force_n));
+      assert(result.left_force_n >= p.minimum_force_n && result.left_force_n <= p.maximum_force_n);
+      assert(result.right_force_n >= p.minimum_force_n && result.right_force_n <= p.maximum_force_n);
+      previous << result.left_force_n, result.right_force_n;
+      auto deviation = state;
+      deviation(2) -= p.nominal_height_m;
+      state = controller.discrete_a() * deviation + controller.discrete_b() *
+              (previous.array() - hover).matrix();
+      state(2) += p.nominal_height_m;
+    }
+    assert(std::abs(state(2) - target) < 0.005);
+  }
   std::cout << "final roll=" << state(0) << " height=" << state(2) << '\n';
   return 0;
 }
