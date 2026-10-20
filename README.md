@@ -141,3 +141,11 @@ ctest --test-dir build --output-on-failure
 python3 tests/verify_leg_qp.py ./build/leg_mpc_qp_test # needs numpy and scipy
 ./build/leg_mpc_benchmark
 ```
+
+## USB chassis controller migration
+
+Development continues in Orb Ubuntu on `feature/usb-can-host-controller`.
+See [migration and GitHub synchronization notes](docs/usb_can_host_migration.md).
+The latest NUC communication benchmark sources are preserved under
+`benchmarks/can_usb_stress_test`; they are verification references, separate from
+the production controller being migrated.
