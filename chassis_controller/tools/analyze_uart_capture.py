@@ -45,6 +45,7 @@ def analyze(path, burst_gap_us=200):
             after = rows[index+1] if index+1 < len(rows) else None
             outliers.append(dict(sequence=row['stream_sequence'], queue_us=row['observation_to_submit_us'],
                                  host_arrival_ns=row['host_arrival_ns'],
+                                 arrival_since_first_ms=(row['host_arrival_ns']-rows[0]['host_arrival_ns'])/1e6,
                                  previous_host_gap_us=(row['host_arrival_ns']-before['host_arrival_ns'])/1000 if before else None,
                                  next_host_gap_us=(after['host_arrival_ns']-row['host_arrival_ns'])/1000 if after else None))
         result[str(port)] = dict(chunks=len(rows), bytes=sum(row['bytes'] for row in rows),
@@ -52,6 +53,13 @@ def analyze(path, burst_gap_us=200):
                                 queue_after_first_second_us=distribution([
                                     row['observation_to_submit_us'] for row in rows
                                     if row['host_arrival_ns']-rows[0]['host_arrival_ns'] >= 1000000000]),
+                                queue_after_first_10ms_us=distribution([
+                                    row['observation_to_submit_us'] for row in rows
+                                    if row['host_arrival_ns']-rows[0]['host_arrival_ns'] >= 10000000]),
+                                over_1ms_count=sum(row['observation_to_submit_us'] > 1000 for row in rows),
+                                last_over_1ms_since_first_ms=max((
+                                    (row['host_arrival_ns']-rows[0]['host_arrival_ns'])/1e6 for row in rows
+                                    if row['observation_to_submit_us'] > 1000), default=None),
                                 observation_gap_us=distribution(observation_gaps),
                                 host_gap_us=distribution(arrival_gaps),
                                 observation_bursts=len(groups), burst_gap_threshold_us=burst_gap_us,

@@ -32,8 +32,10 @@ struct Capture {
       const auto *data = status[i].data();
       std::cout << "UART diagnostic " << (i ? "after" : "before") << ": ";
       const auto version = wire::U32(data + 28);
-      if (version != 0x32545255 && version != 0x33545255 && version != 0x34545255) {
-        std::cout << "URT2/URT3/URT4 marker absent; diagnostic image not verified\n";
+      if (version != 0x32545255 && version != 0x33545255 &&
+          version != 0x34545255) {
+        std::cout
+            << "URT2/URT3/URT4 marker absent; diagnostic image not verified\n";
         continue;
       }
       const auto flags = wire::U32(data + 32);
@@ -178,6 +180,10 @@ int main(int argc, char **argv) {
     wbr::host::UsbOptions options;
     for (int i = 1; i < argc; ++i) {
       const std::string option = argv[i];
+      if (option == "--wait-in-ready") {
+        options.wait_for_input_ready = true;
+        continue;
+      }
       if (option == "--probe-status") {
         probe_status = true;
         continue;
@@ -194,7 +200,7 @@ int main(int argc, char **argv) {
         std::cout
             << "uart_forwarding [--seconds 60] [--csv path] [--usb-cpu 3] "
                "[--priority 80] [--no-rt] [--strict-hi91-crc] "
-               "[--probe-status]\n";
+               "[--probe-status] [--wait-in-ready]\n";
         return 0;
       }
       if (++i == argc)
@@ -262,6 +268,19 @@ int main(int argc, char **argv) {
       status_link.Stop();
       status_link.Close();
     }
+    const auto startup = link.startup_timing();
+    auto interval_us = [](uint64_t end, uint64_t begin) {
+      return (int64_t(end) - int64_t(begin)) / 1000.0;
+    };
+    std::cout << "USB startup wait_in_ready=" << options.wait_for_input_ready
+              << " event_rt_setup_us="
+              << interval_us(startup.configured_ns, startup.event_start_ns)
+              << " first_in_minus_hello_us="
+              << interval_us(startup.first_input_ns, startup.hello_ns)
+              << " all_in_minus_hello_us="
+              << interval_us(startup.inputs_ready_ns, startup.hello_ns)
+              << " hello_to_ready_us="
+              << interval_us(startup.ready_ns, startup.hello_ns) << '\n';
     capture.PrintStatus();
     std::ofstream output(csv);
     if (!output)

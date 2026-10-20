@@ -127,3 +127,8 @@ hardware UART restart. Native driver contracts are in the MCU repository at
 pending; the attempted automated RT run could not start because NUC sudo needs
 a password. Run the existing tool without `--no-rt` for that capture. Do not infer
 full chassis scheduling validation from the UART-only tool.
+
+HI91's 7.205-ms full-capture maximum is now being investigated separately from
+SBUS. See [startup evidence and optional IN-before-Hello A/B](HI91_STARTUP_INVESTIGATION.md).
+The `--wait-in-ready` experiment changes host startup ordering only and needs no
+MCU reflash. The original ordering is still the default until comparison.

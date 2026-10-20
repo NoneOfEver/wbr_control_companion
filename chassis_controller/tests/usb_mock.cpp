@@ -175,6 +175,12 @@ void LIBUSB_CALL libusb_free_transfer(libusb_transfer *transfer) {
 }
 int LIBUSB_CALL libusb_submit_transfer(libusb_transfer *transfer) {
   std::lock_guard<std::mutex> lock(mutex);
+  if (transfer->endpoint == 0x81 && std::getenv("WBR_MOCK_IN_FAIL"))
+    return LIBUSB_ERROR_IO;
+  if (transfer->endpoint == 0x01 &&
+      wire::HasHeader(transfer->buffer, transfer->length, wire::Kind::Hello) &&
+      std::getenv("WBR_MOCK_REQUIRE_PREPOST") && inputs.size() != 4)
+    std::abort();
   (transfer->endpoint == 0x81 ? inputs : outputs).push_back(transfer);
   changed.notify_all();
   return 0;

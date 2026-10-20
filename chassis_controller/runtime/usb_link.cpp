@@ -35,6 +35,11 @@ bool UsbLink::healthy() const {
   return now_us - received_us < bridge::kCommandTimeoutUs;
 }
 
+UsbStartupTiming UsbLink::startup_timing() const {
+  return {event_start_ns_.load(), configured_ns_.load(),
+          first_input_ns_.load(), inputs_ready_ns_.load(),
+          hello_ns_.load(),       ready_ns_.load()};
+}
 bool UsbLink::Open() {
   if (libusb_init(&context_))
     return Fail("Cannot initialize USB");
@@ -86,8 +91,20 @@ bool UsbLink::Open() {
   if (!session_)
     session_ = 1;
   thread_ = std::thread([this] { Events(); });
+  if (options_.wait_for_input_ready) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (!ready_cv_.wait_for(lock, std::chrono::seconds(2), [this] {
+          return inputs_ready_.load() || failed_.load();
+        })) {
+      lock.unlock();
+      return Fail("USB IN prepost timed out");
+    }
+    if (failed_)
+      return false;
+  }
   bridge::Packet hello{};
   bridge::Header(hello.data(), bridge::Kind::Hello, 0, session_);
+  hello_ns_ = rt::MonotonicTimeNs();
   if (!Transmit(hello.data(), hello.size()))
     return false;
   std::unique_lock<std::mutex> lock(mutex_);
@@ -108,6 +125,9 @@ void UsbLink::Submit(Input &input) {
     input.pending = false;
     --active_;
     Fail("USB IN submit");
+  } else if (!first_input_ns_.load()) {
+    uint64_t zero = 0;
+    first_input_ns_.compare_exchange_strong(zero, rt::MonotonicTimeNs());
   }
 }
 void LIBUSB_CALL UsbLink::Receive(libusb_transfer *transfer) {
@@ -138,6 +158,7 @@ void LIBUSB_CALL UsbLink::Receive(libusb_transfer *transfer) {
         self.Fail("Bridge CAN/remote/HI91 capability missing");
         return;
       }
+      self.ready_ns_ = rt::MonotonicTimeNs();
       self.capabilities_ = bridge::U32(packet.data() + 16);
       self.decoder_.Reset();
       if (self.options_.observe) {
@@ -207,13 +228,23 @@ void UsbLink::Stop() {
   ready_ = false;
 }
 void UsbLink::Events() {
+  event_start_ns_ = rt::MonotonicTimeNs();
   std::string error;
   if (options_.realtime &&
       !rt::ConfigureCurrentThread(options_.cpu, options_.priority, error))
     Fail("USB realtime setup: " + error);
+  configured_ns_ = rt::MonotonicTimeNs();
   if (!failed_)
     for (auto &input : inputs_)
       Submit(input);
+  if (!failed_) {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      inputs_ready_ns_ = rt::MonotonicTimeNs();
+      inputs_ready_ = true;
+    }
+    ready_cv_.notify_all();
+  }
   bool cancelled = false;
   for (;;) {
     if (closing_) {

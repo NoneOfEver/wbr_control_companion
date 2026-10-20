@@ -24,6 +24,17 @@ with tempfile.TemporaryDirectory() as directory:
     assert 'irq_timeout=1' in result.stdout
     assert 'last_total=128 last_offset=0 last_pending=103 last_added=25' in result.stdout
     assert 'Not measured:' in result.stdout
+    ordered = subprocess.run(
+        [binary, '--no-rt', '--wait-in-ready', '--seconds', '0.03', '--csv', str(output)],
+        env=dict(os.environ, LD_PRELOAD=backend, WBR_MOCK_UART='1', WBR_MOCK_REQUIRE_PREPOST='1'),
+        capture_output=True, text=True, timeout=8)
+    assert ordered.returncode == 0, (ordered.stdout, ordered.stderr)
+    assert 'USB startup wait_in_ready=1' in ordered.stdout
+    failed = subprocess.run(
+        [binary, '--no-rt', '--wait-in-ready', '--seconds', '0.03', '--csv', str(output)],
+        env=dict(os.environ, LD_PRELOAD=backend, WBR_MOCK_IN_FAIL='1'),
+        capture_output=True, text=True, timeout=8)
+    assert failed.returncode == 1 and 'USB IN submit' in failed.stderr, failed.stderr
     # A working USB link with no UART stream must not report successful measurement.
     empty = subprocess.run(
         [binary, '--no-rt', '--seconds', '0.03', '--csv', str(output)],
