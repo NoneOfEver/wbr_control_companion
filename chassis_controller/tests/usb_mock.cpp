@@ -35,6 +35,10 @@ void Process(libusb_transfer *transfer) {
     if (transfer->length != 64)
       std::abort();
     session = wire::U32(data + 12);
+    ready_delivered = false;
+    stop_received = false;
+    last_sequence = 0;
+    replies.clear();
     wire::Packet reply{};
     wire::Header(reply.data(), wire::Kind::Ready, Now(), session);
     wire::Put32(reply.data() + 16, std::getenv("WBR_MOCK_BAD_CAPS") ? 0 : 15);
@@ -52,6 +56,14 @@ void Process(libusb_transfer *transfer) {
     if (std::getenv("WBR_MOCK_OLD_FIRMWARE"))
       wire::Put32(reply.data(), 0x314b4341);
     replies.push_back(reply);
+    if (std::getenv("WBR_MOCK_STALE_SESSION")) {
+      wire::Packet stale{};
+      wire::Header(stale.data(), wire::Kind::Can, Now(), session ^ 0xffffffffU);
+      stale[10] = 1;
+      uint8_t payload[8]{};
+      wire::CanRecord(stale.data() + 16, 3, 0x201, payload, 8, Now());
+      replies.push_back(stale);
+    }
   } else if (wire::HasHeader(data, transfer->length, wire::Kind::Commands)) {
     if (!ready_delivered || transfer->length != 128)
       std::abort();

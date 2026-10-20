@@ -99,9 +99,31 @@ added. Marker absence explicitly reports that the instrumented image is not
 verified. Counts are cumulative since boot and include intervals outside capture.
 
 URT3 adds IRQ-source classification and timeout-only DMA flush diagnostics.
+
 `irq_rx_available`, `irq_timeout`, `irq_other` classify the driver's existing
 IIR observation; `timeout_flush`, `zero_flush`, `dma_status_errors` describe
 partial publication. `last_total/offset/pending/added` are the last timeout
 snapshot, not counts or maxima. All-zero lengths with zero flush count mean
 unavailable. The matched MCU probe requires the packaged HPM UART driver patch;
 see its investigation notes. The host remains compatible with URT2.
+
+URT4 reports seven disjoint cumulative IIR classes in Ready words 36..60:
+no-pending (1), RX-available (4), timeout (12), TX-empty (2), line-status (6),
+modem (0), and all unexpected IDs. Flags bit 3 identifies the MCU's opt-in
+UART10 RFIFOT=0 hardware-erratum comparison. It does not report FCR readback.
+URT4 replaces the URT3 flush/position fields and is decoded separately.
+Both modes observe the driver's existing IIR read without a second read.
+URT4 also displays flags bit 4 (`line_idle`), bit 5 (`line_idle_error`) and
+bit 6 (`rx_offset_error`). The dust V3 line-idle candidate uses GPTMR events,
+so its disabled UART FIFO IRQ counters remain zero. `fifo_erratum_probe`
+identifies the older FIFO-only experiment; line-idle mode independently sets
+RFIFOT=0 even with that experiment flag off. RX offset checks cover contiguous
+bounded publications and buffer release, not UART wire losslessness.
+
+Acceptance follow-up adds a five-session USB mock reconnect test and an SBUS
+partial-stream reset contract. They verify host behavior, not physical detach or
+hardware UART restart. Native driver contracts are in the MCU repository at
+`test/native/uart_line_idle`. Actual UART silence and realtime USB capture remain
+pending; the attempted automated RT run could not start because NUC sudo needs
+a password. Run the existing tool without `--no-rt` for that capture. Do not infer
+full chassis scheduling validation from the UART-only tool.

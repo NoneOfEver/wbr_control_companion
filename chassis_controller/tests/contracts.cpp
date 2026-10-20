@@ -122,6 +122,15 @@ int main() {
   CHECK(decoder.Consume(Uart(1, 5, safe.data(), 25), 2000));
   CHECK(!store.Read().control.remote_disable_pose &&
         !store.Read().control.remote.robot_enable);
+  // A reconnect clears both published state and an unfinished SBUS frame.
+  decoder.Reset();
+  CHECK(decoder.Consume(Uart(1, 0, sbus.data(), 10), 2000));
+  decoder.Reset();
+  CHECK(!store.Read().control.remote.robot_enable);
+  CHECK(decoder.Consume(Uart(1, 0, sbus.data() + 10, 15), 2000));
+  CHECK(!store.Read().control.remote.robot_enable);
+  CHECK(decoder.Consume(Uart(1, 1, sbus.data(), 25), 2000));
+  CHECK(store.Read().control.remote.robot_enable);
   std::array<uint8_t, 82> hi91{};
   hi91[0] = 0x5a;
   hi91[1] = 0xa5;

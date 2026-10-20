@@ -32,11 +32,28 @@ struct Capture {
       const auto *data = status[i].data();
       std::cout << "UART diagnostic " << (i ? "after" : "before") << ": ";
       const auto version = wire::U32(data + 28);
-      if (version != 0x32545255 && version != 0x33545255) {
-        std::cout << "URT2/URT3 marker absent; diagnostic image not verified\n";
+      if (version != 0x32545255 && version != 0x33545255 && version != 0x34545255) {
+        std::cout << "URT2/URT3/URT4 marker absent; diagnostic image not verified\n";
         continue;
       }
       const auto flags = wire::U32(data + 32);
+      if (version == 0x34545255) {
+        std::cout << "image=URT4 probe=" << (flags & 1)
+                  << " plic_enabled=" << ((flags >> 1) & 1)
+                  << " fifo_erratum_probe=" << ((flags >> 3) & 1)
+                  << " line_idle=" << ((flags >> 4) & 1)
+                  << " line_idle_error=" << ((flags >> 5) & 1)
+                  << " rx_offset_error=" << ((flags >> 6) & 1)
+                  << " last_irq_id=" << ((flags >> 8) & 255)
+                  << " irq_none=" << wire::U32(data + 36)
+                  << " irq_rx_available=" << wire::U32(data + 40)
+                  << " irq_timeout=" << wire::U32(data + 44)
+                  << " irq_tx=" << wire::U32(data + 48)
+                  << " irq_line_status=" << wire::U32(data + 52)
+                  << " irq_modem=" << wire::U32(data + 56)
+                  << " irq_unexpected=" << wire::U32(data + 60) << '\n';
+        continue;
+      }
       if (version == 0x33545255) {
         const auto positions = wire::U32(data + 56);
         const auto lengths = wire::U32(data + 60);

@@ -84,3 +84,10 @@ add_test(NAME uart_forwarding_capture COMMAND ${Python3_EXECUTABLE}
 set_tests_properties(uart_forwarding_capture PROPERTIES TIMEOUT 15)
 add_test(NAME uart_capture_offline_analysis COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/uart_analysis.py)
+add_executable(usb_reconnect_contract tests/usb_reconnect.cpp)
+target_link_libraries(usb_reconnect_contract PRIVATE chassis_runtime)
+target_compile_options(usb_reconnect_contract PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME production_usb_reconnect COMMAND ${CMAKE_COMMAND} -E env
+ LD_PRELOAD=$<TARGET_FILE:production_usb_mock> WBR_MOCK_STALE_SESSION=1
+ $<TARGET_FILE:usb_reconnect_contract>)
+set_tests_properties(production_usb_reconnect PROPERTIES TIMEOUT 10)

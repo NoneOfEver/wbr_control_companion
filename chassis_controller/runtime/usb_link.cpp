@@ -25,9 +25,14 @@ std::string UsbLink::error() {
   return error_;
 }
 bool UsbLink::healthy() const {
-  return ready_ && !failed_ &&
-         rt::MonotonicTimeNs() / 1000 - last_receive_us_.load() <
-             bridge::kCommandTimeoutUs;
+  if (!ready_ || failed_)
+    return false;
+  // Snapshot the receiver first. Sampling time before the atomic load allows
+  // Receive() to publish a newer timestamp between them: unsigned age then
+  // underflows and reports a healthy stream as timed out.
+  const uint64_t received_us = last_receive_us_.load();
+  const uint64_t now_us = rt::MonotonicTimeNs() / 1000;
+  return now_us - received_us < bridge::kCommandTimeoutUs;
 }
 
 bool UsbLink::Open() {
