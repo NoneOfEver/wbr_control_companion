@@ -78,3 +78,28 @@ improve the overall path. BDW increased typical batch time from about 380 to
 622 us. Current benchmark response observations do not identify causal motor
 execution RTT; feedback carries no command sequence. Latest-value feedback does
 not accumulate a FIFO backlog, but stale data can exceed one period on failures.
+
+## Implementation status
+
+The independent `chassis_controller/` target now builds and runs in Orb. The
+existing local balance/recovery/flight/jump/climb algorithms and original YAML
+parameters have been migrated. Runtime includes bounded input snapshots, native
+USB handshake/merged command exchange, SBUS/HI91 parsing and default-disabled
+output policy. No benchmark target is a production dependency.
+
+The Mac workspace now contains the independent MCU application at
+`wbr_control/src/usb_can_bridge`, with a matching protocol header under
+`wbr_control/src/protocols/usb_bridge`. It builds on dust-hpm6750 and forwards
+CAN, board-selected UARTs and raw onboard SPI IMU samples. Its logging, printk,
+RTT, VOFA, stress protocol and chassis control are absent. Shared driver changes
+remain in the MCU workspace; do not overwrite that workspace from an old Git
+checkout. MCU and host source locations are separate and hardware testing is
+still pending.
+
+Native tests cover protocol/sequence/20 ms lease boundaries and wrap, disabled
+commands, freshness, UART gaps, HI91 CRC, actual control math, USB disconnect,
+shutdown and rejection of legacy firmware. An optional original-source balance
+reference test compares 1200 actuator outputs across 2000 ticks.
+
+Build/run instructions are in `chassis_controller/README.md`. The old NUC
+benchmark directory remains solely as a historical measurement reference.

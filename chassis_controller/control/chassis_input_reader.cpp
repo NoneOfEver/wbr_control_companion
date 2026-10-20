@@ -1,0 +1,229 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#include "chassis_input_reader.h"
+
+#include <cmath>
+
+#include <msg/chassismotors_feedback_raw.hpp>
+#include <msg/remote_input_state.hpp>
+
+#include "chassis_config.h"
+
+#include "leg_kinematics.h"
+
+namespace modules {
+using namespace chassis_config;
+
+void ChassisInputReader::Read(const ControllerInputs &sources,
+                              ChassisCycleInput &input, uint64_t now_us,
+                              double dt, bool arm_complete) {
+  input.dt = dt;
+  const uint32_t now_ms = static_cast<uint32_t>(now_us / 1000);
+
+  // 固化六个执行器的原始 CAN 快照，再统一解码。
+  input.wheel_frame.left = sources.motors[0];
+  input.wheel_frame.right = sources.motors[1];
+  input.joint_frame.left.b = sources.motors[2];
+  input.joint_frame.left.d = sources.motors[3];
+  input.joint_frame.right.b = sources.motors[4];
+  input.joint_frame.right.d = sources.motors[5];
+
+  SidePair<bool> wheel_decoded;
+  wheel_decoded.left =
+      input.wheel_frame.left.valid &&
+      protocols::DecodeDjiFeedback(input.wheel_frame.left.data, 8U,
+                                   &wheel_feedback_.left) == 0;
+  wheel_decoded.right =
+      input.wheel_frame.right.valid &&
+      protocols::DecodeDjiFeedback(input.wheel_frame.right.data, 8U,
+                                   &wheel_feedback_.right) == 0;
+
+  SidePair<JointPair<bool>> joint_decoded;
+  joint_decoded.left.b =
+      input.joint_frame.left.b.valid &&
+      protocols::DecodeDmFeedbackNormal(input.joint_frame.left.b.data, 8U,
+                                        &joint_feedback_.left.b) == 0;
+  joint_decoded.left.d =
+      input.joint_frame.left.d.valid &&
+      protocols::DecodeDmFeedbackNormal(input.joint_frame.left.d.data, 8U,
+                                        &joint_feedback_.left.d) == 0;
+  joint_decoded.right.b =
+      input.joint_frame.right.b.valid &&
+      protocols::DecodeDmFeedbackNormal(input.joint_frame.right.b.data, 8U,
+                                        &joint_feedback_.right.b) == 0;
+  joint_decoded.right.d =
+      input.joint_frame.right.d.valid &&
+      protocols::DecodeDmFeedbackNormal(input.joint_frame.right.d.data, 8U,
+                                        &joint_feedback_.right.d) == 0;
+
+  // sequence 用于区分新样本和通道中残留的旧值。
+  input.remote = {};
+  input.remote = sources.remote;
+  if (input.remote.sequence != 0U &&
+      input.remote.sequence != last_remote_sequence_) {
+    last_remote_sequence_ = input.remote.sequence;
+    last_remote_update_ms_ = now_ms;
+  }
+  input.remote_age_ms = last_remote_sequence_ != 0U
+                            ? now_ms - last_remote_update_ms_
+                            : UINT32_MAX;
+  input.remote_fresh = input.remote_age_ms <= kRemoteTimeoutMs;
+  input.requested_enable = input.remote_fresh && input.remote.robot_enable;
+
+  ChassisImuSample new_imu = {};
+  new_imu = sources.imu;
+  if (new_imu.sequence != 0U) {
+    input.imu = new_imu;
+    if (input.imu.sequence != last_imu_sequence_) {
+      last_imu_sequence_ = input.imu.sequence;
+    }
+  }
+
+  // 快照读取期间 ISR 仍可能发布新帧，因此在全部读取完成后重新取时间基准。
+  const uint64_t feedback_now_us = now_us;
+  input.imu_age_us =
+      input.imu.valid && input.imu.precise_timestamp_us <= feedback_now_us
+          ? feedback_now_us - input.imu.precise_timestamp_us
+          : UINT64_MAX;
+  input.imu_fresh =
+      input.imu.valid && last_imu_sequence_ != 0U &&
+      input.imu_age_us <= static_cast<uint64_t>(kImuTimeoutMs) * 1000ULL;
+
+  const auto frame_age_us =
+      [feedback_now_us](const msg::ChassisMotorFeedbackRawFrame &frame,
+                        bool decoded) {
+        if (!decoded || frame.precise_timestamp_us > feedback_now_us) {
+          return UINT32_MAX;
+        }
+        const uint64_t age_us = feedback_now_us - frame.precise_timestamp_us;
+        return age_us > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(age_us);
+      };
+  input.motor_feedback_age_us[0] =
+      frame_age_us(input.wheel_frame.left, wheel_decoded.left);
+  input.motor_feedback_age_us[1] =
+      frame_age_us(input.wheel_frame.right, wheel_decoded.right);
+  input.motor_feedback_age_us[2] =
+      frame_age_us(input.joint_frame.left.b, joint_decoded.left.b);
+  input.motor_feedback_age_us[3] =
+      frame_age_us(input.joint_frame.left.d, joint_decoded.left.d);
+  input.motor_feedback_age_us[4] =
+      frame_age_us(input.joint_frame.right.b, joint_decoded.right.b);
+  input.motor_feedback_age_us[5] =
+      frame_age_us(input.joint_frame.right.d, joint_decoded.right.d);
+  const bool motor_fresh[] = {
+      input.motor_feedback_age_us[0] <= kMotorTimeoutUs,
+      input.motor_feedback_age_us[1] <= kMotorTimeoutUs,
+      input.motor_feedback_age_us[2] <= kMotorTimeoutUs,
+      input.motor_feedback_age_us[3] <= kMotorTimeoutUs,
+      input.motor_feedback_age_us[4] <= kMotorTimeoutUs,
+      input.motor_feedback_age_us[5] <= kMotorTimeoutUs,
+  };
+  input.motor_stale_mask = 0U;
+  bool motors_fresh = true;
+  for (uint8_t i = 0U; i < sizeof(motor_fresh) / sizeof(motor_fresh[0]); ++i) {
+    if (!motor_fresh[i]) {
+      input.motor_stale_mask |= static_cast<uint8_t>((1U << i));
+      motors_fresh = false;
+    }
+  }
+
+  // 正运动学输出统一采用校准后的左右腿坐标。
+  input.leg = {};
+  SidePair<bool> leg_valid;
+  const auto update_leg_kinematics = [&](Side side) {
+    const LegHardwareMap &hardware = kLegHardware.Get(side);
+    const JointPair<bool> &decoded = joint_decoded.Get(side);
+    const JointPair<protocols::DmMotorFeedbackNormal> &feedback =
+        joint_feedback_.Get(side);
+    LegKinematics &leg = input.leg.Get(side);
+    bool &valid = leg_valid.Get(side);
+    if (!decoded.b || !decoded.d) {
+      return;
+    }
+    valid = ComputeLegKinematics(
+        protocols::DmFeedbackPosition(feedback.d, kDmRange),
+        protocols::DmFeedbackPosition(feedback.b, kDmRange),
+        protocols::DmFeedbackVelocity(feedback.d, kDmRange),
+        protocols::DmFeedbackVelocity(feedback.b, kDmRange),
+        hardware.kinematic_branch, leg);
+    if (valid) {
+      leg.angle = hardware.leg_coordinate_sign *
+                  std::remainder(leg.angle - hardware.leg_angle_offset, kTwoPi);
+      leg.angle_rate *= hardware.leg_coordinate_sign;
+    }
+  };
+  update_leg_kinematics(Side::kLeft);
+  update_leg_kinematics(Side::kRight);
+
+  input.feedback_invalid_mask = static_cast<uint8_t>(
+      (input.motor_stale_mask ? 1U : 0U) | (!input.imu_fresh ? 2U : 0U) |
+      (!leg_valid.left ? 4U : 0U) | (!leg_valid.right ? 8U : 0U));
+  input.feedback_valid =
+      motors_fresh && input.imu_fresh && leg_valid.left && leg_valid.right;
+  input.wheel_motor_speed_rpm.left =
+      static_cast<double>(wheel_feedback_.left.omega);
+  input.wheel_motor_speed_rpm.right =
+      static_cast<double>(wheel_feedback_.right.omega);
+  input.dm_ready = joint_feedback_.left.b.control_status == 1U &&
+                   joint_feedback_.left.d.control_status == 1U &&
+                   joint_feedback_.right.b.control_status == 1U &&
+                   joint_feedback_.right.d.control_status == 1U;
+  input.arm_complete = arm_complete;
+
+  input.pitch = input.imu_fresh
+                    ? static_cast<double>(input.imu.pitch_deg) * kDegToRad
+                    : 0.0;
+  input.pitch_rate =
+      input.imu_fresh ? static_cast<double>(input.imu.pitch_rate_rad_s) : 0.0;
+  input.roll = input.imu_fresh
+                   ? static_cast<double>(input.imu.roll_deg) * kDegToRad
+                   : 0.0;
+  input.roll_rate =
+      input.imu_fresh ? static_cast<double>(input.imu.roll_rate_rad_s) : 0.0;
+  input.theta = {};
+  input.theta_rate = {};
+  input.common_theta = 0.0;
+  input.common_theta_rate = 0.0;
+  if (input.feedback_valid) {
+    // 论文坐标满足 alpha = theta + pitch，因此 theta = alpha - pitch。
+    input.theta.left =
+        std::remainder(input.leg.left.angle - input.pitch, kTwoPi);
+    input.theta.right =
+        std::remainder(input.leg.right.angle - input.pitch, kTwoPi);
+    input.theta_rate.left = input.leg.left.angle_rate - input.pitch_rate;
+    input.theta_rate.right = input.leg.right.angle_rate - input.pitch_rate;
+    input.common_theta = std::remainder(
+        0.5 * (input.leg.left.angle + input.leg.right.angle) - input.pitch,
+        kTwoPi);
+    input.common_theta_rate =
+        0.5 * (input.leg.left.angle_rate + input.leg.right.angle_rate) -
+        input.pitch_rate;
+  }
+
+  input.joint_position.left.b =
+      protocols::DmFeedbackPosition(joint_feedback_.left.b, kDmRange);
+  input.joint_position.left.d =
+      protocols::DmFeedbackPosition(joint_feedback_.left.d, kDmRange);
+  input.joint_position.right.b =
+      protocols::DmFeedbackPosition(joint_feedback_.right.b, kDmRange);
+  input.joint_position.right.d =
+      protocols::DmFeedbackPosition(joint_feedback_.right.d, kDmRange);
+  input.joint_velocity.left.b =
+      protocols::DmFeedbackVelocity(joint_feedback_.left.b, kDmRange);
+  input.joint_velocity.left.d =
+      protocols::DmFeedbackVelocity(joint_feedback_.left.d, kDmRange);
+  input.joint_velocity.right.b =
+      protocols::DmFeedbackVelocity(joint_feedback_.right.b, kDmRange);
+  input.joint_velocity.right.d =
+      protocols::DmFeedbackVelocity(joint_feedback_.right.d, kDmRange);
+  input.joint_torque_feedback.left.b =
+      protocols::DmFeedbackTorque(joint_feedback_.left.b, kDmRange);
+  input.joint_torque_feedback.left.d =
+      protocols::DmFeedbackTorque(joint_feedback_.left.d, kDmRange);
+  input.joint_torque_feedback.right.b =
+      protocols::DmFeedbackTorque(joint_feedback_.right.b, kDmRange);
+  input.joint_torque_feedback.right.d =
+      protocols::DmFeedbackTorque(joint_feedback_.right.d, kDmRange);
+}
+
+} // namespace modules

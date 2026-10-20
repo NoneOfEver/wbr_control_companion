@@ -149,3 +149,11 @@ See [migration and GitHub synchronization notes](docs/usb_can_host_migration.md)
 The latest NUC communication benchmark sources are preserved under
 `benchmarks/can_usb_stress_test`; they are verification references, separate from
 the production controller being migrated.
+
+### Native production chassis target
+
+The actual migrated controller is now under [`chassis_controller/`](chassis_controller/README.md).
+Build with `./scripts/build_chassis_controller.sh` in Orb Ubuntu or on NUC.
+It uses a separate versioned USB gateway protocol and does not link stress tests,
+VOFA or the legacy MPC offload interface. Hardware verification is pending;
+actuator output is disabled by default.
