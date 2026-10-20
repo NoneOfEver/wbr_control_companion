@@ -14,7 +14,10 @@ Record per-stream gaps/freshness and error counts, command coalescing, queue
 saturation, actual 1-kHz releases and their worst intervals. Include multiple
 cold starts and session reestablishments. Preserve the full maxima separately
 from explicitly labelled steady-state summaries; do not hide startup samples.
-This combined hardware test on the UART-fixed gateway is still pending.
+The independent `full_load_zero` tool now implements this baseline using wheel
+zero current and joint Exit frames. See `measurements/full_load/README.md` for
+metrics and limits, including unavailable MCU CAN TX completion/coalescing data.
+Its mock test passes; the combined hardware run remains pending.
 
 ## Hardware lifecycle and fault behavior
 

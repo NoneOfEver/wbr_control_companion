@@ -5,9 +5,11 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <libusb.h>
 #include <mutex>
+#include <protocols/imu/hi91_protocol.h>
 #include <wbr_bridge/bridge_protocol.hpp>
 
 struct libusb_context {};
@@ -28,6 +30,60 @@ uint32_t Now() {
   return uint32_t(std::chrono::duration_cast<std::chrono::microseconds>(
                       std::chrono::steady_clock::now().time_since_epoch())
                       .count());
+}
+void FullLoadSensors(const wire::Commands &packet) {
+  if (packet[10] != 6)
+    std::abort();
+  for (unsigned i = 0; i < 6; ++i) {
+    const auto *frame = packet.data() + 32 + 16 * i;
+    const unsigned slot = frame[12];
+    for (unsigned byte = 0; byte < 8; ++byte) {
+      const uint8_t expected = slot < 2 ? 0 : (byte == 7 ? 0xfd : 0xff);
+      if (frame[4 + byte] != expected)
+        std::abort();
+    }
+  }
+  static uint32_t uart_sequence[2]{};
+  const auto uart = [&](unsigned port, const uint8_t *data, size_t size) {
+    while (size) {
+      const auto count = std::min(size, size_t(40));
+      wire::Packet packet{};
+      const auto stamp = Now();
+      wire::Header(packet.data(), wire::Kind::Uart, stamp, session);
+      packet[10] = port;
+      packet[11] = count;
+      wire::Put32(packet.data() + 16, uart_sequence[port - 1]++);
+      wire::Put32(packet.data() + 20, stamp - 7);
+      std::copy_n(data, count, packet.data() + 24);
+      replies.push_back(packet);
+      data += count;
+      size -= count;
+    }
+  };
+  static uint32_t last_sbus_us = 0;
+  const uint32_t now_us = Now();
+  if (!last_sbus_us || uint32_t(now_us - last_sbus_us) >= 14000) {
+    last_sbus_us = now_us;
+    uint8_t sbus[25]{};
+    sbus[0] = 0x0f;
+    uart(1, sbus, sizeof(sbus));
+  }
+  uint8_t hi91[82]{};
+  hi91[0] = 0x5a;
+  hi91[1] = 0xa5;
+  wire::Put16(hi91 + 2, 76);
+  hi91[6] = 0x91;
+  wire::Put32(hi91 + 14, command_count);
+  wire::Put16(hi91 + 4, protocols::CalculateHi91FrameCrc(76, hi91 + 6));
+  uart(2, hi91, sizeof(hi91));
+  if (!std::getenv("WBR_MOCK_FULL_DROP_IMU")) {
+    wire::Packet imu{};
+    const auto stamp = Now();
+    wire::Header(imu.data(), wire::Kind::Imu, stamp, session);
+    imu[10] = 25;
+    wire::Put32(imu.data() + 16, stamp - 7);
+    replies.push_back(imu);
+  }
 }
 void Process(libusb_transfer *transfer) {
   const auto *data = transfer->buffer;
@@ -53,6 +109,10 @@ void Process(libusb_transfer *transfer) {
       wire::Put32(reply.data() + 56, 128);
       wire::Put32(reply.data() + 60, 103 | (25U << 16));
     }
+    if (std::getenv("WBR_MOCK_FULL_LOAD")) {
+      wire::Put32(reply.data() + 28, 0x34545255);
+      wire::Put32(reply.data() + 32, 19);
+    }
     if (std::getenv("WBR_MOCK_OLD_FIRMWARE"))
       wire::Put32(reply.data(), 0x314b4341);
     replies.push_back(reply);
@@ -76,6 +136,8 @@ void Process(libusb_transfer *transfer) {
       std::abort();
     last_sequence = sequence;
     ++command_count;
+    if (std::getenv("WBR_MOCK_FULL_LOAD"))
+      FullLoadSensors(packet);
     if (std::getenv("WBR_MOCK_UART")) {
       if (packet[10] != 0)
         std::abort(); // UART capture must never send motor commands.
@@ -100,6 +162,8 @@ void Process(libusb_transfer *transfer) {
       for (unsigned i = 0; i < 3; ++i) {
         const auto &motor = platform::motor_map::kMotors[slots[side][i]];
         uint8_t value[8]{};
+        if (slots[side][i] == 2 && std::getenv("WBR_MOCK_FULL_FAULT"))
+          value[0] = 0xa0;
         wire::CanRecord(feedback.data() + 16 + 16 * i, motor.bus,
                         motor.feedback_id, value, 8,
                         wire::U32(feedback.data() + 4));

@@ -91,3 +91,11 @@ add_test(NAME production_usb_reconnect COMMAND ${CMAKE_COMMAND} -E env
  LD_PRELOAD=$<TARGET_FILE:production_usb_mock> WBR_MOCK_STALE_SESSION=1 WBR_MOCK_REQUIRE_PREPOST=1
  $<TARGET_FILE:usb_reconnect_contract>)
 set_tests_properties(production_usb_reconnect PROPERTIES TIMEOUT 10)
+
+add_executable(full_load_zero measurements/full_load/main.cpp measurements/full_load/capture.cpp)
+target_link_libraries(full_load_zero PRIVATE chassis_runtime)
+target_compile_options(full_load_zero PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME full_load_zero_capture COMMAND ${Python3_EXECUTABLE}
+ ${CMAKE_CURRENT_SOURCE_DIR}/tests/full_load_capture.py
+ $<TARGET_FILE:full_load_zero> $<TARGET_FILE:production_usb_mock>)
+set_tests_properties(full_load_zero_capture PROPERTIES TIMEOUT 30)

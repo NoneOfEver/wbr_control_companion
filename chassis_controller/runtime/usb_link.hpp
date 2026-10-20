@@ -21,6 +21,9 @@ struct UsbOptions {
   // It must not block, allocate, or retain the packet reference.
   void (*observe)(void *, const bridge::Packet &, uint64_t, uint64_t) = nullptr;
   void *observer_context = nullptr;
+  // Optional test observer: once per 128-byte OUT completion, including cancel.
+  // Same event owner and context as observe; must be bounded/nonblocking.
+  void (*command_completed)(void *, bool) = nullptr;
 };
 class UsbLink {
 public:

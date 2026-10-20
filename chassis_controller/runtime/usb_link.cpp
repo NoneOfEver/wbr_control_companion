@@ -185,6 +185,11 @@ void LIBUSB_CALL UsbLink::Sent(libusb_transfer *transfer) {
   auto &output = *static_cast<Output *>(transfer->user_data);
   auto &self = *output.owner;
   --self.active_;
+  if (transfer->length == bridge::kOutBytes && self.options_.command_completed)
+    self.options_.command_completed(
+        self.options_.observer_context,
+        transfer->status == LIBUSB_TRANSFER_COMPLETED &&
+            transfer->actual_length == transfer->length);
   if (!self.closing_ && (transfer->status != LIBUSB_TRANSFER_COMPLETED ||
                          transfer->actual_length != transfer->length))
     self.Fail("USB OUT disconnected or incomplete");
