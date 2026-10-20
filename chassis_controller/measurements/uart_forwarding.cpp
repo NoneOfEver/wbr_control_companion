@@ -164,8 +164,10 @@ int main(int argc, char **argv) {
     while (!stopping &&
            rt::MonotonicTimeNs() - start < uint64_t(seconds * 1e9)) {
       wire::Commands heartbeat{};
-      if (!link.Send(heartbeat))
+      if (!link.Send(heartbeat)) {
+        error = "USB session unhealthy or heartbeat submission failed";
         break;
+      }
       release += 1000000;
       if (!rt::SleepUntilNs(release, error))
         break;
@@ -173,6 +175,7 @@ int main(int argc, char **argv) {
       if (now > release + 1000000)
         release = now;
     }
+    const double elapsed = (rt::MonotonicTimeNs() - start) / 1e9;
     const std::string usb_error = link.error();
     link.Stop();
     link.Close(); // joins observer owner before accessing captured memory
@@ -193,6 +196,13 @@ int main(int argc, char **argv) {
     output.close();
     if (!output)
       throw std::runtime_error("CSV write failed: " + csv);
+    std::cout << "Capture requested=" << seconds << " elapsed=" << elapsed
+              << " s termination="
+              << (stopping
+                      ? "signal"
+                      : (!error.empty() || !usb_error.empty() ? "error"
+                                                              : "duration"))
+              << '\n';
     for (unsigned port = 1; port <= 3; ++port)
       Summarize(capture, port);
     std::cout

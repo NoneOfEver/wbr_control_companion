@@ -67,3 +67,25 @@ sensor timestamps without verifying their units, epoch and acquisition meaning.
 The native mock test checks timestamp statistics, deliberately missing chunks,
 CSV export, empty-stream failure, and that heartbeats contain no motor commands.
 It is not a physical UART or USB latency result.
+
+## Offline batching investigation
+
+Analyze the saved CSV without opening USB:
+
+```bash
+python3 chassis_controller/tools/analyze_uart_capture.py /tmp/uart_forwarding.csv
+```
+
+This groups closely spaced MCU observation timestamps (default 200 us), reports
+chunk-size patterns and host data span, and locates the largest queue samples.
+It separately reports queue timing after the first second while retaining the
+full-capture outliers. Groups are software observation bursts, not proven UART
+frame boundaries. Threshold changes can split/merge groups.
+
+The 2026-10-21 NUC capture has exactly 365 SBUS bursts of 40/40/40/8 bytes;
+its approximately 84-ms gaps are already present at MCU observation. Source
+inspection found the HPM async UART init masks its PLIC source while RX enable
+only enables the UART peripheral interrupt. A default-off MCU probe unmasks
+only UART10's PLIC source for an A/B comparison; it does not shrink DMA buffers.
+See `src/usb_can_bridge/UART10_INVESTIGATION.md` in the matching MCU repository.
+This is not yet hardware-confirmed and does not change the production default.

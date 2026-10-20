@@ -82,3 +82,5 @@ add_test(NAME uart_forwarding_capture COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/uart_capture.py
  $<TARGET_FILE:uart_forwarding> $<TARGET_FILE:production_usb_mock>)
 set_tests_properties(uart_forwarding_capture PROPERTIES TIMEOUT 15)
+add_test(NAME uart_capture_offline_analysis COMMAND ${Python3_EXECUTABLE}
+ ${CMAKE_CURRENT_SOURCE_DIR}/tests/uart_analysis.py)
