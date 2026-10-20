@@ -114,3 +114,6 @@ implementation. This optional source path is not a runtime dependency and is
 not required on NUC. The current local comparison passed with maximum difference
 zero. Recovery/flight/jump/climb implementations were imported from the same
 manifested source version; the numerical comparison specifically covers balance.
+
+UART forwarding baseline measurement is available as an independent tool; see
+[measurement instructions and timing limits](measurements/README.md).

@@ -73,3 +73,12 @@ if(WBR_REFERENCE_CHASSIS_DIR)
   ${CMAKE_CURRENT_SOURCE_DIR}/tests/compare_reference.py
   $<TARGET_FILE:chassis_reference_balance> $<TARGET_FILE:chassis_balance_fixture>)
 endif()
+
+# Independent capture tool; never linked into the production controller.
+add_executable(uart_forwarding measurements/uart_forwarding.cpp)
+target_link_libraries(uart_forwarding PRIVATE chassis_runtime)
+target_compile_options(uart_forwarding PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME uart_forwarding_capture COMMAND ${Python3_EXECUTABLE}
+ ${CMAKE_CURRENT_SOURCE_DIR}/tests/uart_capture.py
+ $<TARGET_FILE:uart_forwarding> $<TARGET_FILE:production_usb_mock>)
+set_tests_properties(uart_forwarding_capture PROPERTIES TIMEOUT 15)

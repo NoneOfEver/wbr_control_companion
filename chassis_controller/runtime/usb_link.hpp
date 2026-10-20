@@ -13,6 +13,10 @@ struct UsbOptions {
   bool realtime = true;
   int cpu = 3, priority = 80;
   bool strict_hi91_crc = false;
+  // Optional bounded observer, called only by the USB event owner after decode.
+  // It must not block, allocate, or retain the packet reference.
+  void (*observe)(void *, const bridge::Packet &, uint64_t, uint64_t) = nullptr;
+  void *observer_context = nullptr;
 };
 class UsbLink {
 public:

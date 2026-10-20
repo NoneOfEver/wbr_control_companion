@@ -138,8 +138,12 @@ void LIBUSB_CALL UsbLink::Receive(libusb_transfer *transfer) {
       self.ready_ = true;
       self.ready_cv_.notify_all();
     } else if (self.ready_) {
-      if (!self.decoder_.Consume(packet, rt::MonotonicTimeNs() / 1000))
+      const uint64_t arrival_ns = rt::MonotonicTimeNs();
+      if (!self.decoder_.Consume(packet, arrival_ns / 1000))
         self.Fail("Malformed bridge sensor packet");
+      else if (self.options_.observe)
+        self.options_.observe(self.options_.observer_context, packet,
+                              arrival_ns, rt::MonotonicTimeNs());
     }
   }
   if (!self.closing_ && !self.failed_)

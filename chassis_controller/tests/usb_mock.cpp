@@ -55,6 +55,22 @@ void Process(libusb_transfer *transfer) {
       std::abort();
     last_sequence = sequence;
     ++command_count;
+    if (std::getenv("WBR_MOCK_UART")) {
+      if (packet[10] != 0)
+        std::abort(); // UART capture must never send motor commands.
+      for (unsigned port = 1; port <= 2; ++port) {
+        wire::Packet uart{};
+        const uint32_t stamp = Now();
+        wire::Header(uart.data(), wire::Kind::Uart, stamp, session);
+        uart[10] = port;
+        uart[11] = 8;
+        // One deliberately missing chunk exercises stream-gap reporting.
+        wire::Put32(uart.data() + 16,
+                    command_count + (command_count >= 3 ? 1 : 0));
+        wire::Put32(uart.data() + 20, stamp - 7);
+        replies.push_back(uart);
+      }
+    }
     for (unsigned side = 0; side < 2; ++side) {
       wire::Packet feedback{};
       wire::Header(feedback.data(), wire::Kind::Can, Now(), session);
