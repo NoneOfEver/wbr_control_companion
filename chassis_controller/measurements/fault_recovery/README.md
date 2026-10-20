@@ -82,3 +82,27 @@ Host mock tests verify diagnostic encoding, old-image refusal, real OS signal
 handling of the worker, strict zero/Exit command bytes, cleanup and result checker
 boundaries (including MCU clock wrap). They do not emulate the full MCU watchdog
 across processes and are not a substitute for this hardware suite.
+
+## First hardware result (non-RT host)
+
+The diagnostic image was flashed and FLT1 verified. The suite ran on wbr-nuc
+with `--no-rt`, no controller/Enter/MIT frames. All three cases passed; each
+worker had 500 newly accepted command packets before the fault:
+
+| Case | Last accepted MCU command -> stop group submission | Reason | Prior session |
+| --- | ---: | --- | ---: |
+| SIGTERM | 848 us | explicit Stop | 0 |
+| SIGKILL | 20913 us | lease expired | 0 |
+| SIGSTOP/SIGCONT | 20995 us | lease expired | 0 |
+
+Both automatic cases incremented the lease-stop counter once and had no valid
+explicit Stop in the expired session. Freeze resumed to worker exit code 2,
+without reconnect/rearm. Stop group submissions returned no errors. These
+intervals are MCU-local, **not time from the OS signal or physical motor stop**.
+Raw evidence is `first_no_rt_report.json`; the NUC report is
+`~/wbr_realtime_lab/results/fault_recovery_first_no_rt/report.json`.
+
+The same suite with production realtime host configuration is still pending
+because the remote session lacks passwordless sudo. Physical USB detach and
+hardware motor stop timing also remain pending. Do not label this as full
+fault/recovery acceptance for an enabled robot.

@@ -36,7 +36,10 @@ normal explicit rearm conditions, not automatically resume previous motion.
 The mock USB tests are not substitutes for physical lifecycle tests.
 The dedicated `run_fault_recovery.sh` suite now automates owned-process exit,
 kill and freeze against the opt-in MCU FLT1 page; see its measurement README.
-Hardware results are pending and physical USB detach remains a separate step.
+A first non-RT hardware run passed all three process cases: explicit stop
+submission 848 us after last accepted command, lease-stop submissions 20913 and
+20995 us; old sessions were cleared. RT-host repetition and physical USB detach
+remain pending; this does not measure moving-motor stopping time.
 
 Verify SBUS frame-lost/failsafe, invalid stream and true input timeout cause the
 intended disabled state. Test HI91 stale/invalid input and motor-feedback loss.
