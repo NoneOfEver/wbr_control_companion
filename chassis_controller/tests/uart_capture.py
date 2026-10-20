@@ -11,7 +11,7 @@ with tempfile.TemporaryDirectory() as directory:
     output = pathlib.Path(directory) / 'uart.csv'
     result = subprocess.run(
         [binary, '--no-rt', '--probe-status', '--seconds', '0.12', '--csv', str(output)],
-        env=dict(os.environ, LD_PRELOAD=backend, WBR_MOCK_UART='1'),
+        env=dict(os.environ, LD_PRELOAD=backend, WBR_MOCK_UART='1', WBR_MOCK_REQUIRE_PREPOST='1'),
         capture_output=True, text=True, timeout=8)
     assert result.returncode == 0, (result.stdout, result.stderr)
     rows = list(csv.DictReader(output.open()))
@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert ordered.returncode == 0, (ordered.stdout, ordered.stderr)
     assert 'USB startup wait_in_ready=1' in ordered.stdout
     failed = subprocess.run(
-        [binary, '--no-rt', '--wait-in-ready', '--seconds', '0.03', '--csv', str(output)],
+        [binary, '--no-rt', '--seconds', '0.03', '--csv', str(output)],
         env=dict(os.environ, LD_PRELOAD=backend, WBR_MOCK_IN_FAIL='1'),
         capture_output=True, text=True, timeout=8)
     assert failed.returncode == 1 and 'USB IN submit' in failed.stderr, failed.stderr

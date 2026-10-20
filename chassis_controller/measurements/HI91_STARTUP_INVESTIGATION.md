@@ -44,28 +44,40 @@ The capture now prints host-local startup milestones:
   They are software submission milestones, not on-wire packet timestamps.
 - `hello_to_ready_us`: Hello submission start to validated Ready observation.
 
-The new `--wait-in-ready` option waits until setup and all four successful IN
-submissions finish before sending Hello. Default remains the original ordering.
+The experiment used `--wait-in-ready` to wait for setup and all four IN
+submissions before Hello. Following the measured A/B below, this order is now
+mandatory in UsbLink::Open for every session. The old flag is accepted only for
+command compatibility; there is no runtime opt-out.
 It includes a bounded wait and fails on setup/IN-submit errors. It does not start
 control, change motor outputs, insert warm-up exclusions or discard startup data.
 Only startup milestones are stored; no periodic diagnostic packets are added.
 
-On the same firmware, compare fresh-process starts (sudo required on NUC):
+## Measured A/B and production decision
+
+The user ran two fresh-process real-time captures for 10 seconds on the same
+MCU candidate, with no forwarding sequence gaps, offset errors or overflow:
+
+| Host startup milestone / metric | Original order | IN ready before Hello |
+| --- | ---: | ---: |
+| Event-thread setup | 4519.81 us | 4564.73 us |
+| All IN minus Hello | +4943.67 us | -98.052 us |
+| Hello to validated Ready | 4988.75 us | 356.886 us |
+| HI91 queue p50/p99/max | 53/169/4699 us | 55/175/313 us |
+
+This supports the initial-IN delay as the cause of the measured startup backlog.
+Event-thread setup still takes about 4.5 ms, but now happens before MCU session
+publication begins. It does not prove every portion of setup is mlockall, or
+measure UART-wire-to-host latency. No startup samples were discarded.
+
+Production order is now: initialize USB -> configure event thread -> successfully
+submit four IN transfers -> Hello -> validated Ready -> control operation.
+Setup/IN errors prevent Hello. Every newly constructed USB session uses this
+order. For a further default-mode regression, no special flag is needed:
 
 ```bash
-sudo ./scripts/run_uart_forwarding.sh --probe-status --seconds 10 \
-  --csv ~/wbr_realtime_lab/results/hi91_startup_baseline.csv
-sudo ./scripts/run_uart_forwarding.sh --probe-status --wait-in-ready --seconds 10 \
-  --csv ~/wbr_realtime_lab/results/hi91_startup_preposted.csv
+sudo ./scripts/run_uart_forwarding.sh --probe-status --seconds 60 \
+  --csv ~/wbr_realtime_lab/results/hi91_startup_production.csv
 ```
 
-Repeat starts if needed: startup thread ordering can vary. A positive baseline
-IN-minus-Hello interval matching accumulation, followed by a negative interval
-and loss of startup backlog with the barrier, supports this hypothesis. If IN
-was already submitted first or the backlog persists, inspect MCU Ready/first-IN
-completion and uplink dequeue timing next. A single improvement does not by
-itself prove real-time configuration cost is the cause.
-
 The USB mock asserts all four IN requests precede Hello with the option enabled,
-and verifies an IN-submit failure exits instead of sending Hello. All regular
-production defaults remain unchanged pending hardware comparison.
+and verifies an IN-submit failure exits instead of sending Hello. Default production and UART capture paths both use the mandatory barrier.

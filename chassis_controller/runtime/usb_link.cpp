@@ -91,7 +91,9 @@ bool UsbLink::Open() {
   if (!session_)
     session_ = 1;
   thread_ = std::thread([this] { Events(); });
-  if (options_.wait_for_input_ready) {
+  // Every session starts receiving before Hello can enable MCU publication.
+  // This includes RT setup/mlockall; failures must not start a session.
+  {
     std::unique_lock<std::mutex> lock(mutex_);
     if (!ready_cv_.wait_for(lock, std::chrono::seconds(2), [this] {
           return inputs_ready_.load() || failed_.load();

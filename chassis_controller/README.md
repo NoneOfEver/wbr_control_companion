@@ -117,3 +117,9 @@ manifested source version; the numerical comparison specifically covers balance.
 
 UART forwarding baseline measurement is available as an independent tool; see
 [measurement instructions and timing limits](measurements/README.md).
+
+Every USB session completes event-thread realtime setup and preposts all four IN
+transfers before sending Hello. Setup or IN-submit failure prevents session start;
+this is mandatory in both the controller and capture tool. The startup backlog
+A/B is recorded in `measurements/HI91_STARTUP_INVESTIGATION.md`.
+Before real actuation, follow [the remaining acceptance work](PREALGORITHM_ACCEPTANCE.md).

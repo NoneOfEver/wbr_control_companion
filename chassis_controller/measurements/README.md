@@ -130,5 +130,7 @@ full chassis scheduling validation from the UART-only tool.
 
 HI91's 7.205-ms full-capture maximum is now being investigated separately from
 SBUS. See [startup evidence and optional IN-before-Hello A/B](HI91_STARTUP_INVESTIGATION.md).
-The `--wait-in-ready` experiment changes host startup ordering only and needs no
-MCU reflash. The original ordering is still the default until comparison.
+The A/B confirmed startup accumulation before IN readiness. Waiting for all four
+IN submissions is now mandatory for every UsbLink session, including the normal
+controller and capture tool. No special flag or MCU reflash is needed. The old
+`--wait-in-ready` flag remains a compatibility alias.

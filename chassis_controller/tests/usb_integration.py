@@ -5,7 +5,7 @@ import sys
 
 binary, backend = sys.argv[1:]
 for mode in (None, "WBR_MOCK_BAD_CAPS", "WBR_MOCK_OLD_FIRMWARE", "WBR_MOCK_DISCONNECT"):
-    environment = dict(os.environ, LD_PRELOAD=backend)
+    environment = dict(os.environ, LD_PRELOAD=backend, WBR_MOCK_REQUIRE_PREPOST="1")
     if mode:
         environment[mode] = "1"
     result = subprocess.run([binary, "--no-rt", "--seconds", "0.4"], env=environment,

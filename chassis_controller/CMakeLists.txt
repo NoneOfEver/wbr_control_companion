@@ -88,6 +88,6 @@ add_executable(usb_reconnect_contract tests/usb_reconnect.cpp)
 target_link_libraries(usb_reconnect_contract PRIVATE chassis_runtime)
 target_compile_options(usb_reconnect_contract PRIVATE -Wall -Wextra -Wpedantic -Werror)
 add_test(NAME production_usb_reconnect COMMAND ${CMAKE_COMMAND} -E env
- LD_PRELOAD=$<TARGET_FILE:production_usb_mock> WBR_MOCK_STALE_SESSION=1
+ LD_PRELOAD=$<TARGET_FILE:production_usb_mock> WBR_MOCK_STALE_SESSION=1 WBR_MOCK_REQUIRE_PREPOST=1
  $<TARGET_FILE:usb_reconnect_contract>)
 set_tests_properties(production_usb_reconnect PROPERTIES TIMEOUT 10)

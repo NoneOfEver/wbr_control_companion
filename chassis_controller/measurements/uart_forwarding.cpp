@@ -181,7 +181,7 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; ++i) {
       const std::string option = argv[i];
       if (option == "--wait-in-ready") {
-        options.wait_for_input_ready = true;
+        // Compatibility with earlier A/B commands; ordering is now mandatory.
         continue;
       }
       if (option == "--probe-status") {
@@ -200,7 +200,7 @@ int main(int argc, char **argv) {
         std::cout
             << "uart_forwarding [--seconds 60] [--csv path] [--usb-cpu 3] "
                "[--priority 80] [--no-rt] [--strict-hi91-crc] "
-               "[--probe-status] [--wait-in-ready]\n";
+               "[--probe-status]\n";
         return 0;
       }
       if (++i == argc)
@@ -272,7 +272,7 @@ int main(int argc, char **argv) {
     auto interval_us = [](uint64_t end, uint64_t begin) {
       return (int64_t(end) - int64_t(begin)) / 1000.0;
     };
-    std::cout << "USB startup wait_in_ready=" << options.wait_for_input_ready
+    std::cout << "USB startup wait_in_ready=1"
               << " event_rt_setup_us="
               << interval_us(startup.configured_ns, startup.event_start_ns)
               << " first_in_minus_hello_us="
