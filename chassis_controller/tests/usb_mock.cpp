@@ -11,6 +11,7 @@
 #include <mutex>
 #include <protocols/imu/hi91_protocol.h>
 #include <wbr_bridge/bridge_protocol.hpp>
+#include <wbr_bridge/fault_diagnostics.hpp>
 
 struct libusb_context {};
 struct libusb_device_handle {};
@@ -112,6 +113,12 @@ void Process(libusb_transfer *transfer) {
     if (std::getenv("WBR_MOCK_FULL_LOAD")) {
       wire::Put32(reply.data() + 28, 0x34545255);
       wire::Put32(reply.data() + 32, 19);
+    }
+    if (data[10] == wire::kFaultQueryPage &&
+        std::getenv("WBR_MOCK_FAULT_DIAG")) {
+      wire::FaultSnapshot diagnostic{command_count, 0,      2, 3,
+                                     100000,        120100, 2, 0};
+      wire::EncodeFaultSnapshot(reply, diagnostic);
     }
     if (std::getenv("WBR_MOCK_OLD_FIRMWARE"))
       wire::Put32(reply.data(), 0x314b4341);

@@ -34,6 +34,9 @@ inputs. The 20-ms command lease is not an end-to-end motor stop guarantee: CAN
 queue/serialization and motor response add time. Reconnection must require the
 normal explicit rearm conditions, not automatically resume previous motion.
 The mock USB tests are not substitutes for physical lifecycle tests.
+The dedicated `run_fault_recovery.sh` suite now automates owned-process exit,
+kill and freeze against the opt-in MCU FLT1 page; see its measurement README.
+Hardware results are pending and physical USB detach remains a separate step.
 
 Verify SBUS frame-lost/failsafe, invalid stream and true input timeout cause the
 intended disabled state. Test HI91 stale/invalid input and motor-feedback loss.

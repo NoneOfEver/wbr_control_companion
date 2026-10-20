@@ -127,3 +127,7 @@ Before real actuation, follow [the remaining acceptance work](PREALGORITHM_ACCEP
 The separate [full concurrent zero-output baseline](measurements/full_load/README.md)
 sends six stop-only CAN frames per 1-kHz cycle while receiving all sensors.
 It does not run the controller or enable joints.
+
+The [stop-only fault/recovery suite](measurements/fault_recovery/README.md) tests
+owned-process termination, kill and freeze against opt-in MCU lease diagnostics.
+It observes stop submission and session invalidation, not physical motor stop.

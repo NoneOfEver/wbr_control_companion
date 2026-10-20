@@ -99,3 +99,11 @@ add_test(NAME full_load_zero_capture COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/full_load_capture.py
  $<TARGET_FILE:full_load_zero> $<TARGET_FILE:production_usb_mock>)
 set_tests_properties(full_load_zero_capture PROPERTIES TIMEOUT 30)
+
+add_executable(fault_zero_worker measurements/fault_recovery/worker.cpp)
+target_link_libraries(fault_zero_worker PRIVATE chassis_runtime)
+target_compile_options(fault_zero_worker PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME fault_recovery_contracts COMMAND ${Python3_EXECUTABLE}
+ ${CMAKE_CURRENT_SOURCE_DIR}/tests/fault_recovery_contracts.py
+ $<TARGET_FILE:fault_zero_worker> $<TARGET_FILE:production_usb_mock>)
+set_tests_properties(fault_recovery_contracts PROPERTIES TIMEOUT 25)

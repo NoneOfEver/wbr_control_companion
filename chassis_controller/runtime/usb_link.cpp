@@ -106,6 +106,7 @@ bool UsbLink::Open() {
   }
   bridge::Packet hello{};
   bridge::Header(hello.data(), bridge::Kind::Hello, 0, session_);
+  hello[10] = options_.ready_query_page;
   hello_ns_ = rt::MonotonicTimeNs();
   if (!Transmit(hello.data(), hello.size()))
     return false;
