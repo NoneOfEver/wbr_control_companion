@@ -97,3 +97,11 @@ to read them before and after capture. The final read performs a second
 stop/Hello handshake after measurement; no periodic diagnostic USB traffic is
 added. Marker absence explicitly reports that the instrumented image is not
 verified. Counts are cumulative since boot and include intervals outside capture.
+
+URT3 adds IRQ-source classification and timeout-only DMA flush diagnostics.
+`irq_rx_available`, `irq_timeout`, `irq_other` classify the driver's existing
+IIR observation; `timeout_flush`, `zero_flush`, `dma_status_errors` describe
+partial publication. `last_total/offset/pending/added` are the last timeout
+snapshot, not counts or maxima. All-zero lengths with zero flush count mean
+unavailable. The matched MCU probe requires the packaged HPM UART driver patch;
+see its investigation notes. The host remains compatible with URT2.

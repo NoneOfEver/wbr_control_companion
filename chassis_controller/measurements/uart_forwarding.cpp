@@ -31,11 +31,31 @@ struct Capture {
     for (size_t i = 0; i < status_count; ++i) {
       const auto *data = status[i].data();
       std::cout << "UART diagnostic " << (i ? "after" : "before") << ": ";
-      if (wire::U32(data + 28) != 0x32545255) {
-        std::cout << "URT2 marker absent; diagnostic image not verified\n";
+      const auto version = wire::U32(data + 28);
+      if (version != 0x32545255 && version != 0x33545255) {
+        std::cout << "URT2/URT3 marker absent; diagnostic image not verified\n";
         continue;
       }
       const auto flags = wire::U32(data + 32);
+      if (version == 0x33545255) {
+        const auto positions = wire::U32(data + 56);
+        const auto lengths = wire::U32(data + 60);
+        std::cout << "image=URT3 probe=" << (flags & 1)
+                  << " plic_enabled=" << ((flags >> 1) & 1)
+                  << " irq_rx_available=" << wire::U32(data + 36)
+                  << " irq_timeout=" << wire::U32(data + 40)
+                  << " irq_other=" << wire::U32(data + 44)
+                  << " length_overflow=" << ((flags >> 2) & 1)
+                  << " last_irq_id=" << ((flags >> 8) & 255)
+                  << " timeout_flush=" << wire::U32(data + 48)
+                  << " zero_flush=" << wire::U32(data + 52)
+                  << " dma_status_errors=" << (flags >> 16)
+                  << " last_total=" << (positions & 65535)
+                  << " last_offset=" << (positions >> 16)
+                  << " last_pending=" << (lengths & 65535)
+                  << " last_added=" << (lengths >> 16) << '\n';
+        continue;
+      }
       std::cout << "image=URT2 probe=" << (flags & 1)
                 << " plic_enabled=" << ((flags >> 1) & 1)
                 << " ISR=" << wire::U32(data + 36)

@@ -41,10 +41,13 @@ void Process(libusb_transfer *transfer) {
     wire::Put32(reply.data() + 20, 128);
     wire::Put32(reply.data() + 24, 64);
     if (std::getenv("WBR_MOCK_UART")) {
-      wire::Put32(reply.data() + 28, 0x32545255);
+      wire::Put32(reply.data() + 28, 0x33545255);
       wire::Put32(reply.data() + 32, 3);
       wire::Put32(reply.data() + 36, command_count);
-      wire::Put32(reply.data() + 40, command_count);
+      wire::Put32(reply.data() + 40, command_count + 1);
+      wire::Put32(reply.data() + 48, command_count + 1);
+      wire::Put32(reply.data() + 56, 128);
+      wire::Put32(reply.data() + 60, 103 | (25U << 16));
     }
     if (std::getenv("WBR_MOCK_OLD_FIRMWARE"))
       wire::Put32(reply.data(), 0x314b4341);
