@@ -24,11 +24,39 @@ struct Capture {
   wbr::host::SensorStore &sensors;
   std::vector<Sample> samples;
   size_t used = 0, overflow = 0;
+  std::array<wire::Packet, 2> status{};
+  size_t status_count = 0;
+  bool recording = true;
+  void PrintStatus() const {
+    for (size_t i = 0; i < status_count; ++i) {
+      const auto *data = status[i].data();
+      std::cout << "UART diagnostic " << (i ? "after" : "before") << ": ";
+      if (wire::U32(data + 28) != 0x32545255) {
+        std::cout << "URT2 marker absent; diagnostic image not verified\n";
+        continue;
+      }
+      const auto flags = wire::U32(data + 32);
+      std::cout << "image=URT2 probe=" << (flags & 1)
+                << " plic_enabled=" << ((flags >> 1) & 1)
+                << " ISR=" << wire::U32(data + 36)
+                << " RX_RDY=" << wire::U32(data + 40)
+                << " partial=" << wire::U32(data + 44)
+                << " full128=" << wire::U32(data + 48)
+                << " bytes=" << wire::U32(data + 52)
+                << " max_callback_gap_us=" << wire::U32(data + 56)
+                << " last_length=" << wire::U32(data + 60) << '\n';
+    }
+  }
   static void Observe(void *context, const wire::Packet &packet,
                       uint64_t arrival, uint64_t decoded) {
-    if (packet[9] != uint8_t(wire::Kind::Uart))
-      return;
     auto &self = *static_cast<Capture *>(context);
+    if (packet[9] == uint8_t(wire::Kind::Ready)) {
+      if (self.status_count < self.status.size())
+        self.status[self.status_count++] = packet;
+      return;
+    }
+    if (!self.recording || packet[9] != uint8_t(wire::Kind::Uart))
+      return;
     if (self.used == self.samples.size()) {
       ++self.overflow;
       return;
@@ -108,10 +136,15 @@ void Summarize(const Capture &capture, unsigned port) {
 int main(int argc, char **argv) {
   try {
     double seconds = 60;
+    bool probe_status = false;
     std::string csv = "uart_forwarding.csv";
     wbr::host::UsbOptions options;
     for (int i = 1; i < argc; ++i) {
       const std::string option = argv[i];
+      if (option == "--probe-status") {
+        probe_status = true;
+        continue;
+      }
       if (option == "--no-rt") {
         options.realtime = false;
         continue;
@@ -123,7 +156,8 @@ int main(int argc, char **argv) {
       if (option == "--help") {
         std::cout
             << "uart_forwarding [--seconds 60] [--csv path] [--usb-cpu 3] "
-               "[--priority 80] [--no-rt] [--strict-hi91-crc]\n";
+               "[--priority 80] [--no-rt] [--strict-hi91-crc] "
+               "[--probe-status]\n";
         return 0;
       }
       if (++i == argc)
@@ -179,6 +213,19 @@ int main(int argc, char **argv) {
     const std::string usb_error = link.error();
     link.Stop();
     link.Close(); // joins observer owner before accessing captured memory
+    capture.recording = false;
+    if (probe_status) {
+      // A second stop/Hello obtains counters after capture without adding
+      // periodic diagnostic traffic to the measured interval.
+      wbr::host::UsbLink status_link(sensors, options);
+      if (!status_link.Open()) {
+        if (error.empty())
+          error = "Final status handshake: " + status_link.error();
+      }
+      status_link.Stop();
+      status_link.Close();
+    }
+    capture.PrintStatus();
     std::ofstream output(csv);
     if (!output)
       throw std::runtime_error("Cannot open CSV: " + csv);

@@ -89,3 +89,11 @@ only enables the UART peripheral interrupt. A default-off MCU probe unmasks
 only UART10's PLIC source for an A/B comparison; it does not shrink DMA buffers.
 See `src/usb_can_bridge/UART10_INVESTIGATION.md` in the matching MCU repository.
 This is not yet hardware-confirmed and does not change the production default.
+
+The initial PLIC A/B run did **not** remove SBUS batching. The next opt-in MCU
+image is identified by `URT2` in Ready and reports interrupt/partial/full RX
+counters. Run `run_uart_forwarding.sh --probe-status --seconds 60 --csv PATH`
+to read them before and after capture. The final read performs a second
+stop/Hello handshake after measurement; no periodic diagnostic USB traffic is
+added. Marker absence explicitly reports that the instrumented image is not
+verified. Counts are cumulative since boot and include intervals outside capture.

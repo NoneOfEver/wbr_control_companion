@@ -10,7 +10,7 @@ binary, backend = sys.argv[1:]
 with tempfile.TemporaryDirectory() as directory:
     output = pathlib.Path(directory) / 'uart.csv'
     result = subprocess.run(
-        [binary, '--no-rt', '--seconds', '0.12', '--csv', str(output)],
+        [binary, '--no-rt', '--probe-status', '--seconds', '0.12', '--csv', str(output)],
         env=dict(os.environ, LD_PRELOAD=backend, WBR_MOCK_UART='1'),
         capture_output=True, text=True, timeout=8)
     assert result.returncode == 0, (result.stdout, result.stderr)
@@ -19,6 +19,8 @@ with tempfile.TemporaryDirectory() as directory:
     assert all(int(row['observation_to_submit_us']) == 7 for row in rows)
     assert 'missing_chunks=1' in result.stdout, result.stdout
     assert 'capture_overflow=0' in result.stdout, result.stdout
+    assert 'UART diagnostic before: image=URT2 probe=1 plic_enabled=1 ISR=0' in result.stdout
+    assert 'UART diagnostic after: image=URT2 probe=1 plic_enabled=1' in result.stdout
     assert 'Not measured:' in result.stdout
     # A working USB link with no UART stream must not report successful measurement.
     empty = subprocess.run(

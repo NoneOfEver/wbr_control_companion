@@ -135,6 +135,10 @@ void LIBUSB_CALL UsbLink::Receive(libusb_transfer *transfer) {
       }
       self.capabilities_ = bridge::U32(packet.data() + 16);
       self.decoder_.Reset();
+      if (self.options_.observe) {
+        const auto now = rt::MonotonicTimeNs();
+        self.options_.observe(self.options_.observer_context, packet, now, now);
+      }
       self.ready_ = true;
       self.ready_cv_.notify_all();
     } else if (self.ready_) {
