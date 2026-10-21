@@ -6,6 +6,7 @@
 #include <stdexcept>
 namespace wbr::host {
 struct PeripheralState {
+  bool sbus_failsafe = false, sbus_frame_lost = false;
   std::array<uint8_t, 25> onboard_raw{};
   float onboard_temperature_c = 0;
   uint64_t onboard_sample_us = 0;

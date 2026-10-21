@@ -109,3 +109,7 @@ add_test(NAME fault_recovery_contracts COMMAND ${Python3_EXECUTABLE}
 set_tests_properties(fault_recovery_contracts PROPERTIES TIMEOUT 25)
 add_test(NAME usb_unplug_contracts COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/usb_unplug_contracts.py)
+
+add_executable(remote_loss measurements/remote_loss.cpp)
+target_link_libraries(remote_loss PRIVATE chassis_runtime)
+target_compile_options(remote_loss PRIVATE -Wall -Wextra -Wpedantic -Werror)

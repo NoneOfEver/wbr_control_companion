@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "chassis_config.h"
 #include "chassis_controller.h"
+#include "chassis_input_reader.h"
 #include "motor_commands.hpp"
 #include "sensor_decoder.hpp"
 #include <algorithm>
@@ -122,6 +123,19 @@ int main() {
   CHECK(decoder.Consume(Uart(1, 5, safe.data(), 25), 2000));
   CHECK(!store.Read().control.remote_disable_pose &&
         !store.Read().control.remote.robot_enable);
+  CHECK(store.Read().peripheral.sbus_failsafe);
+  safe[23] = 4;
+  CHECK(decoder.Consume(Uart(1, 6, safe.data(), 25), 2000));
+  CHECK(store.Read().peripheral.sbus_frame_lost);
+  CHECK(!store.Read().control.remote.robot_enable);
+  modules::ChassisInputReader freshness;
+  modules::ChassisCycleInput checked{};
+  freshness.Read(sources, checked, 1000, .001, false);
+  CHECK(checked.requested_enable);
+  freshness.Read(sources, checked,
+                 1000ULL * (modules::chassis_config::kRemoteTimeoutMs + 2),
+                 .001, false);
+  CHECK(!checked.remote_fresh && !checked.requested_enable);
   // A reconnect clears both published state and an unfinished SBUS frame.
   decoder.Reset();
   CHECK(decoder.Consume(Uart(1, 0, sbus.data(), 10), 2000));

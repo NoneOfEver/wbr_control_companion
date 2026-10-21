@@ -125,6 +125,8 @@ void SensorDecoder::ParseRemote(Stream &stream, uint64_t) {
     ConsumeBytes(stream, 1);
     return;
   }
+  latest_.peripheral.sbus_failsafe = decoded.failsafe;
+  latest_.peripheral.sbus_frame_lost = decoded.frame_lost;
   msg::RemoteInputState remote{};
   remote.source = msg::kRemoteInputWfly;
   auto normalized = [](uint16_t value) {
