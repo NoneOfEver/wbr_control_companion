@@ -145,7 +145,9 @@ void LIBUSB_CALL UsbLink::Receive(libusb_transfer *transfer) {
     if (self.options_.fault_trace)
       self.options_.fault_trace(self.options_.observer_context, 1,
                                 transfer->status, rt::MonotonicTimeNs(), 0);
-    self.Fail("USB IN disconnected or invalid length");
+    self.Fail("USB IN status=" + std::to_string(int(transfer->status)) +
+              " actual_length=" + std::to_string(transfer->actual_length) +
+              " expected_length=64");
     return;
   }
   const auto &packet = input.data;

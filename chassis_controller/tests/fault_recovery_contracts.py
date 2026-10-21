@@ -30,6 +30,7 @@ disconnected = subprocess.run(
 assert disconnected.returncode == 1, disconnected.stderr
 assert 'USB session unhealthy' in disconnected.stderr
 assert 'transfer_status=5' in disconnected.stderr
+assert 'USB IN status=5 actual_length=0 expected_length=64' in disconnected.stderr
 for mode in ('terminate','freeze'):
     child = subprocess.Popen([binary,'--no-rt'],env=environment,stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE,text=True)

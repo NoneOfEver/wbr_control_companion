@@ -19,5 +19,5 @@ for mode in (None, "WBR_MOCK_BAD_CAPS", "WBR_MOCK_OLD_FIRMWARE", "WBR_MOCK_DISCO
     elif mode == "WBR_MOCK_BAD_CAPS":
         assert "capability missing" in result.stderr
     else:
-        assert "disconnected" in result.stderr
+        assert "USB IN status=5 actual_length=0 expected_length=64" in result.stderr
 print("Production handshake, merged commands, sensor reception, stop, old firmware rejection and disconnect passed")
