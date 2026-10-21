@@ -262,6 +262,13 @@ void UsbLink::Events() {
   }
   bool cancelled = false;
   for (;;) {
+    if (failed_ && !closing_) {
+      // A disconnected libusb context may return immediately forever. Park
+      // the FIFO event owner so the control owner can observe failure and
+      // call Close. Close wakes this thread to cancel/drain pending transfers.
+      std::unique_lock<std::mutex> lock(mutex_);
+      ready_cv_.wait(lock, [this] { return closing_.load(); });
+    }
     if (closing_) {
       if (!cancelled) {
         for (auto &input : inputs_)
@@ -290,7 +297,11 @@ void UsbLink::Events() {
 void UsbLink::Close() {
   if (!context_)
     return;
-  closing_ = true;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    closing_ = true;
+  }
+  ready_cv_.notify_all();
   // Sole event owner cancels and drains. No lower-priority event-lock
   // acquisition.
   if (thread_.joinable())

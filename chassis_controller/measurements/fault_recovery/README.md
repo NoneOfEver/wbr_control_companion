@@ -156,3 +156,17 @@ Compare that range and first error with last_good_wake, fault_release and
 fault_wake (deadline exit), or unhealthy (Send failure). link_error preserves
 the first recorded USB link error. A zero timestamp means not observed.
 The trace is diagnostic instrumentation and can slightly perturb timing.
+
+
+Hardware detach trace (before fix): first IN NO_DEVICE was followed by
+2,334,326 consecutive event calls shorter than 10 us over 1.591 s. The control
+owner next woke 1.650 s after its scheduled release and exited on deadline.
+The retained MCU record showed USB-deconfiguration stop submission 1125 us
+after its last accepted command, with old session cleared and no submission
+error. This confirms host event-loop spin; it does not measure motor stop.
+
+On link failure the event owner now waits on a condition variable. Close sets
+the closing predicate under the same mutex and wakes it to cancel/drain pending
+transfers. This prevents failed-context polling from starving the same-CPU FIFO
+control owner. No auto-reconnect, affinity change or relaxed pass criterion is
+introduced. Mock detach/close regression passes; physical retest is pending.

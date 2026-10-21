@@ -24,6 +24,12 @@ missing = dict(environment)
 del missing['WBR_MOCK_FAULT_DIAG']
 result = subprocess.run([binary,'--no-rt','--query'],env=missing,capture_output=True,text=True,timeout=5)
 assert result.returncode == 1 and 'FLT1 diagnostics unavailable' in result.stderr
+disconnected = subprocess.run(
+    [binary,'--no-rt'],env=dict(environment,WBR_MOCK_DISCONNECT='1'),
+    capture_output=True,text=True,timeout=3)
+assert disconnected.returncode == 1, disconnected.stderr
+assert 'USB session unhealthy' in disconnected.stderr
+assert 'transfer_status=5' in disconnected.stderr
 for mode in ('terminate','freeze'):
     child = subprocess.Popen([binary,'--no-rt'],env=environment,stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE,text=True)
