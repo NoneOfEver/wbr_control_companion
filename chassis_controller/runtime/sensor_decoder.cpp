@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "sensor_decoder.hpp"
+#include "chassis_config.h"
 #include <algorithm>
 #include <chassis_controller/motor_map.h>
 #include <cmath>
@@ -13,7 +14,7 @@ void SensorDecoder::Reset() {
   latest_ = {};
   streams_ = {};
   remote_sequence_ = imu_sequence_ = 0;
-  has_hi91_sensor_time_ = false;
+  hi91_time_guard_.Reset();
   store_.Publish(latest_);
 }
 void SensorDecoder::ConsumeBytes(Stream &stream, size_t count) {
@@ -71,6 +72,7 @@ bool SensorDecoder::Consume(const bridge::Packet &packet, uint64_t host_us) {
         latest_.control.remote.sequence = ++remote_sequence_;
       }
       if (port == 1) {
+        hi91_time_guard_.Reject();
         ++latest_.peripheral.hi91.gaps;
         latest_.control.imu.valid = false;
       }
@@ -185,6 +187,7 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
     if (stream.size < 2)
       return;
     if (stream.bytes[0] != 0x5a || stream.bytes[1] != 0xa5) {
+      hi91_time_guard_.Reject();
       ++diagnostics.resync_bytes;
       ConsumeBytes(stream, 1);
       continue;
@@ -194,6 +197,7 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
     const size_t payload = bridge::U16(stream.bytes.data() + 2);
     if (payload > protocols::kHi91MaxPayloadLength ||
         payload < protocols::kHi91DataLength) {
+      hi91_time_guard_.Reject();
       ++diagnostics.length_errors;
       ConsumeBytes(stream, 1);
       continue;
@@ -205,6 +209,7 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
     const int result = protocols::DecodeHi91Frame(stream.bytes.data(), size,
                                                   strict_crc_, &decoded);
     if (result) {
+      hi91_time_guard_.Reject();
       ++diagnostics.decode_errors;
       ConsumeBytes(stream, 1);
       continue;
@@ -214,12 +219,29 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
         std::abs(decoded.pitch_deg) >
             modules::hi91_imu_params::kHi91MaximumValidPitchDeg ||
         !std::isfinite(decoded.roll_deg) || !std::isfinite(decoded.yaw_deg)) {
+      hi91_time_guard_.Reject();
       ++diagnostics.attitude_errors;
       ConsumeBytes(stream, 1);
       continue;
     }
-    if (has_hi91_sensor_time_ &&
-        !bridge::NewSequence(decoded.system_time_ms, hi91_sensor_time_)) {
+    bool finite = true;
+    for (unsigned i = 0; i < 3; ++i)
+      finite = finite && std::isfinite(decoded.gyro_dps[i]) &&
+               std::isfinite(decoded.accel_g[i]);
+    if (!finite) {
+      hi91_time_guard_.Reject();
+      ++diagnostics.nonfinite_errors;
+      ConsumeBytes(stream, size);
+      continue;
+    }
+    // Recovery candidates require CRC even when legacy normal decode is
+    // permissive.
+    const bool crc_valid =
+        bridge::U16(stream.bytes.data() + 4) ==
+        protocols::CalculateHi91FrameCrc(payload, stream.bytes.data() + 6);
+    if (!hi91_time_guard_.Accept(
+            decoded.system_time_ms, timestamp,
+            modules::chassis_config::kImuTimeoutMs * 1000ULL, crc_valid)) {
       diagnostics.last_rejected_ms = decoded.system_time_ms;
       if (decoded.system_time_ms == hi91_sensor_time_)
         ++diagnostics.equal_time;
@@ -228,15 +250,7 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
       ConsumeBytes(stream, size);
       continue;
     }
-    bool finite = true;
-    for (unsigned i = 0; i < 3; ++i)
-      finite = finite && std::isfinite(decoded.gyro_dps[i]) &&
-               std::isfinite(decoded.accel_g[i]);
-    if (!finite) {
-      ++diagnostics.nonfinite_errors;
-      ConsumeBytes(stream, size);
-      continue;
-    }
+    diagnostics.time_rebases = hi91_time_guard_.rebases();
     auto &imu = latest_.control.imu;
     imu = {};
     imu.sequence = ++imu_sequence_;
@@ -255,7 +269,7 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
     ++diagnostics.accepted;
     diagnostics.last_accepted_ms = decoded.system_time_ms;
     hi91_sensor_time_ = decoded.system_time_ms;
-    has_hi91_sensor_time_ = true;
+
     ConsumeBytes(stream, size);
   }
 }

@@ -10,6 +10,7 @@ struct Hi91Diagnostics {
   uint64_t length_errors = 0, decode_errors = 0, attitude_errors = 0;
   uint64_t nonfinite_errors = 0, equal_time = 0, backward_time = 0,
            accepted = 0;
+  uint32_t time_rebases = 0;
   uint32_t last_candidate_ms = 0, last_accepted_ms = 0, last_rejected_ms = 0;
   uint64_t last_chunk_host_us = 0;
 };

@@ -39,9 +39,8 @@ Normal operation for about 5 seconds, unplug the HI91-only connector for about
 other sensors connected/powered. No full control algorithm runs. This verifies
 input classification only, not enabled-state stopping or rearming.
 
-Capture startup/steady state/dropout/recovery separately. The current decoder
-rejects backwards HI91 device timestamps; power cycling may therefore expose
-failure to recover, which must not be declared PASS solely because USB is healthy.
+Capture startup/steady state/dropout/recovery separately. The decoder qualifies a replacement time epoch after stale input; recovery
+must be confirmed in the CSV, not inferred solely from USB health.
 Malformed/CRC fault injection is not performed by this hardware test. Production
 CRC policy remains unchanged (permissive). No enabled actuation is allowed.
 
@@ -54,5 +53,13 @@ system_time_ms and latest chunk host timestamp allow the dropout and recovery
 intervals to be compared. Counters classify the first rejection branch only;
 CRC is included in decode errors only when the existing strict policy is enabled.
 No UART electrical arrival is observed; increasing byte counts prove USB chunks
-arrived, not that the source bytes are valid frames. Instrumentation does not
-change filtering or reset the accepted device timestamp after a sensor reboot.
+arrived, not that the source bytes are valid frames. Time recovery now requires the old accepted sample to exceed the configured
+3 ms timeout, then at least three CRC-correct, otherwise valid backwards-time
+frames with increasing device times, at most 20 ms apart in both sample and
+device clocks, spanning at least 2 ms in host sample time. Repeated timestamps,
+invalid frames, stream gaps and resynchronization reset qualification. The third
+qualifying frame can publish; earlier candidates never refresh freshness.
+Ordinary uint32 device wrap remains forward progress. time_rebases records
+qualified changes; it establishes a plausible new epoch, not hardware proof of
+a reboot. Normal forward-frame CRC policy remains unchanged. This is input
+recovery only; it does not implement controller rearm or motor enable.

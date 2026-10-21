@@ -2,6 +2,7 @@
 #include "chassis_config.h"
 #include "chassis_controller.h"
 #include "chassis_input_reader.h"
+#include "hi91_time_guard.hpp"
 #include "motor_commands.hpp"
 #include "sensor_decoder.hpp"
 #include <algorithm>
@@ -47,6 +48,36 @@ std::array<uint8_t, 25> Sbus(bool enabled) {
 }
 } // namespace
 int main() {
+  host::Hi91TimeGuard time_guard;
+  CHECK(time_guard.Accept(100000, 1000, 3000, true));
+  CHECK(!time_guard.Accept(10, 2000, 3000, true)); // still fresh
+  CHECK(!time_guard.Accept(10, 10000, 3000, true));
+  CHECK(!time_guard.Accept(11, 11000, 3000, true));
+  CHECK(time_guard.Accept(12, 12000, 3000, true));
+  CHECK(time_guard.rebases() == 1);
+  CHECK(!time_guard.Accept(12, 13000, 3000, true));
+  CHECK(time_guard.Accept(13, 14000, 3000, true));
+  CHECK(!time_guard.Accept(1, 20000, 3000, false)); // corrupt reboot candidate
+  CHECK(!time_guard.Accept(2, 21000, 3000, true));
+  CHECK(!time_guard.Accept(1, 22000, 3000,
+                           true)); // reorder restarts qualification
+  CHECK(!time_guard.Accept(2, 23000, 3000, true));
+  CHECK(time_guard.Accept(3, 24000, 3000, true));
+  CHECK(time_guard.rebases() == 2);
+  time_guard.Reset();
+  CHECK(time_guard.Accept(0xfffffffeU, 1000, 3000, true));
+  CHECK(time_guard.Accept(1, 2000, 3000, true)); // ordinary uint32 wrap
+  CHECK(time_guard.rebases() == 0);
+  time_guard.Reset();
+  CHECK(time_guard.Accept(100000, 1000, 3000, true));
+  CHECK(!time_guard.Accept(1, 10000, 3000, true));
+  CHECK(!time_guard.Accept(2, 10000, 3000, true));
+  CHECK(!time_guard.Accept(3, 10000, 3000,
+                           true)); // one buffered burst insufficient
+  time_guard.Reject();
+  CHECK(!time_guard.Accept(4, 11000, 3000, true));
+  CHECK(!time_guard.Accept(5, 12000, 3000, true));
+  CHECK(time_guard.Accept(6, 13000, 3000, true));
   bridge::CommandLease lease;
   CHECK(!lease.Expired(100000, false));
   CHECK(lease.CanAccept(0xffffffffU));

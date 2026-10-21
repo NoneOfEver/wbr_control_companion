@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
+#include "hi91_time_guard.hpp"
 #include "sensor_store.hpp"
 #include <array>
 #include <wbr_bridge/bridge_protocol.hpp>
@@ -28,7 +29,7 @@ private:
   Snapshot latest_{};
   std::array<Stream, 3> streams_{};
   uint32_t remote_sequence_ = 0, imu_sequence_ = 0, hi91_sensor_time_ = 0;
-  bool has_hi91_sensor_time_ = false;
+  Hi91TimeGuard hi91_time_guard_;
   bool strict_crc_;
 };
 } // namespace wbr::host

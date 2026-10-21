@@ -115,7 +115,7 @@ int main(int argc, char **argv) {
            "hi91_attitude_errors,hi91_nonfinite_errors,hi91_equal_time,hi91_"
            "backward_time,"
            "hi91_accepted,hi91_candidate_ms,hi91_accepted_ms,hi91_rejected_ms,"
-           "hi91_last_chunk_host_us\n";
+           "hi91_last_chunk_host_us,hi91_time_rebases\n";
     uint64_t flagged = 0, stale = 0, violations = 0, imu_stale = 0;
     for (const auto &r : rows) {
       csv << r.elapsed_us << ',' << r.sequence << ',' << r.age_ms << ','
@@ -128,7 +128,7 @@ int main(int argc, char **argv) {
           << r.hi91.equal_time << ',' << r.hi91.backward_time << ','
           << r.hi91.accepted << ',' << r.hi91.last_candidate_ms << ','
           << r.hi91.last_accepted_ms << ',' << r.hi91.last_rejected_ms << ','
-          << r.hi91.last_chunk_host_us << '\n';
+          << r.hi91.last_chunk_host_us << ',' << r.hi91.time_rebases << '\n';
       imu_stale += r.imu_sequence && !r.imu_fresh;
       flagged += r.sequence && (r.failsafe || r.lost);
       stale += r.sequence && !r.fresh;
@@ -164,6 +164,7 @@ int main(int argc, char **argv) {
                 << " nonfinite_errors=" << d.nonfinite_errors
                 << " equal_time=" << d.equal_time
                 << " backward_time=" << d.backward_time
+                << " time_rebases=" << d.time_rebases
                 << " candidate_ms=" << d.last_candidate_ms
                 << " accepted_ms=" << d.last_accepted_ms
                 << " rejected_ms=" << d.last_rejected_ms << '\n';
