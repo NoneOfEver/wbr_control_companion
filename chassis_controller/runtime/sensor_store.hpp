@@ -5,7 +5,16 @@
 #include <pthread.h>
 #include <stdexcept>
 namespace wbr::host {
+struct Hi91Diagnostics {
+  uint64_t chunks = 0, bytes = 0, gaps = 0, resync_bytes = 0;
+  uint64_t length_errors = 0, decode_errors = 0, attitude_errors = 0;
+  uint64_t nonfinite_errors = 0, equal_time = 0, backward_time = 0,
+           accepted = 0;
+  uint32_t last_candidate_ms = 0, last_accepted_ms = 0, last_rejected_ms = 0;
+  uint64_t last_chunk_host_us = 0;
+};
 struct PeripheralState {
+  Hi91Diagnostics hi91{};
   bool sbus_failsafe = false, sbus_frame_lost = false;
   std::array<uint8_t, 25> onboard_raw{};
   float onboard_temperature_c = 0;

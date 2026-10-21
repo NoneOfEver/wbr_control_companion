@@ -57,6 +57,11 @@ bool SensorDecoder::Consume(const bridge::Packet &packet, uint64_t host_us) {
       return false;
     const unsigned port = packet[10] - 1;
     auto &stream = streams_[port];
+    if (port == 1) {
+      ++latest_.peripheral.hi91.chunks;
+      latest_.peripheral.hi91.bytes += packet[11];
+      latest_.peripheral.hi91.last_chunk_host_us = host_us;
+    }
     const uint32_t sequence = U32(packet.data() + 16);
     if (stream.has_sequence && sequence != stream.sequence + 1) {
       stream.size = 0;
@@ -65,8 +70,10 @@ bool SensorDecoder::Consume(const bridge::Packet &packet, uint64_t host_us) {
         latest_.control.remote_disable_pose = false;
         latest_.control.remote.sequence = ++remote_sequence_;
       }
-      if (port == 1)
+      if (port == 1) {
+        ++latest_.peripheral.hi91.gaps;
         latest_.control.imu.valid = false;
+      }
     }
     stream.sequence = sequence;
     stream.has_sequence = true;
@@ -173,10 +180,12 @@ void SensorDecoder::ParseRemote(Stream &stream, uint64_t) {
   ConsumeBytes(stream, 25);
 }
 void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
+  auto &diagnostics = latest_.peripheral.hi91;
   for (;;) {
     if (stream.size < 2)
       return;
     if (stream.bytes[0] != 0x5a || stream.bytes[1] != 0xa5) {
+      ++diagnostics.resync_bytes;
       ConsumeBytes(stream, 1);
       continue;
     }
@@ -185,6 +194,7 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
     const size_t payload = bridge::U16(stream.bytes.data() + 2);
     if (payload > protocols::kHi91MaxPayloadLength ||
         payload < protocols::kHi91DataLength) {
+      ++diagnostics.length_errors;
       ConsumeBytes(stream, 1);
       continue;
     }
@@ -194,15 +204,27 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
     protocols::Hi91Sample decoded{};
     const int result = protocols::DecodeHi91Frame(stream.bytes.data(), size,
                                                   strict_crc_, &decoded);
-    if (result || !std::isfinite(decoded.pitch_deg) ||
+    if (result) {
+      ++diagnostics.decode_errors;
+      ConsumeBytes(stream, 1);
+      continue;
+    }
+    diagnostics.last_candidate_ms = decoded.system_time_ms;
+    if (!std::isfinite(decoded.pitch_deg) ||
         std::abs(decoded.pitch_deg) >
             modules::hi91_imu_params::kHi91MaximumValidPitchDeg ||
         !std::isfinite(decoded.roll_deg) || !std::isfinite(decoded.yaw_deg)) {
+      ++diagnostics.attitude_errors;
       ConsumeBytes(stream, 1);
       continue;
     }
     if (has_hi91_sensor_time_ &&
         !bridge::NewSequence(decoded.system_time_ms, hi91_sensor_time_)) {
+      diagnostics.last_rejected_ms = decoded.system_time_ms;
+      if (decoded.system_time_ms == hi91_sensor_time_)
+        ++diagnostics.equal_time;
+      else
+        ++diagnostics.backward_time;
       ConsumeBytes(stream, size);
       continue;
     }
@@ -211,6 +233,7 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
       finite = finite && std::isfinite(decoded.gyro_dps[i]) &&
                std::isfinite(decoded.accel_g[i]);
     if (!finite) {
+      ++diagnostics.nonfinite_errors;
       ConsumeBytes(stream, size);
       continue;
     }
@@ -229,6 +252,8 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
     imu.yaw_rate_rad_s = decoded.gyro_dps[2] * radians;
     std::copy_n(decoded.accel_g, 3, imu.accel_g);
     imu.vertical_accel_g = decoded.accel_g[2];
+    ++diagnostics.accepted;
+    diagnostics.last_accepted_ms = decoded.system_time_ms;
     hi91_sensor_time_ = decoded.system_time_ms;
     has_hi91_sensor_time_ = true;
     ConsumeBytes(stream, size);

@@ -44,3 +44,15 @@ rejects backwards HI91 device timestamps; power cycling may therefore expose
 failure to recover, which must not be declared PASS solely because USB is healthy.
 Malformed/CRC fault injection is not performed by this hardware test. Production
 CRC policy remains unchanged (permissive). No enabled actuation is allowed.
+
+
+HI91 diagnosis columns are cumulative within the current USB session: forwarded
+UART2 chunks/bytes/gaps, discarded resynchronization bytes, invalid length,
+DecodeHi91Frame error, attitude validity error, nonfinite gyro/acceleration,
+equal/backward device time, and accepted frames. Candidate/accepted/rejected
+system_time_ms and latest chunk host timestamp allow the dropout and recovery
+intervals to be compared. Counters classify the first rejection branch only;
+CRC is included in decode errors only when the existing strict policy is enabled.
+No UART electrical arrival is observed; increasing byte counts prove USB chunks
+arrived, not that the source bytes are valid frames. Instrumentation does not
+change filtering or reset the accepted device timestamp after a sensor reboot.

@@ -181,6 +181,11 @@ int main() {
   CHECK(decoder.Consume(Uart(2, 5, hi91.data() + 80, 2), 3000));
   CHECK(store.Read().control.imu.sequence ==
         sequence); // duplicate sensor time cannot refresh state
+  const auto hi91_diagnostics = store.Read().peripheral.hi91;
+  CHECK(hi91_diagnostics.chunks == 6 && hi91_diagnostics.bytes == 164);
+  CHECK(hi91_diagnostics.accepted == 1 && hi91_diagnostics.equal_time == 1);
+  CHECK(hi91_diagnostics.backward_time == 0 &&
+        hi91_diagnostics.decode_errors == 0);
   bridge::Packet can{};
   bridge::Header(can.data(), bridge::Kind::Can, 10, 7);
   can[10] = 1;

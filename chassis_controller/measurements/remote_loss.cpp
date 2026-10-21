@@ -19,6 +19,7 @@ struct Row {
   uint32_t imu_sequence;
   uint64_t imu_age_us;
   bool imu_valid, imu_fresh;
+  wbr::host::Hi91Diagnostics hi91;
 };
 } // namespace
 int main(int argc, char **argv) {
@@ -89,7 +90,8 @@ int main(int argc, char **argv) {
                       input.remote_age_ms, snapshot.peripheral.sbus_failsafe,
                       snapshot.peripheral.sbus_frame_lost, input.remote_fresh,
                       input.requested_enable, input.imu.sequence,
-                      input.imu_age_us, input.imu.valid, input.imu_fresh});
+                      input.imu_age_us, input.imu.valid, input.imu_fresh,
+                      snapshot.peripheral.hi91});
       if (!link.Send(zero)) {
         termination = "usb_send_failed";
         transport_ok = false;
@@ -107,13 +109,26 @@ int main(int argc, char **argv) {
     if (!csv)
       throw std::runtime_error("Cannot create CSV");
     csv << "elapsed_us,sequence,age_ms,failsafe,frame_lost,fresh,requested_"
-           "enable,imu_sequence,imu_age_us,imu_valid,imu_fresh\n";
+           "enable,imu_sequence,imu_age_us,imu_valid,imu_fresh,hi91_chunks,"
+           "hi91_bytes,"
+           "hi91_gaps,hi91_resync_bytes,hi91_length_errors,hi91_decode_errors,"
+           "hi91_attitude_errors,hi91_nonfinite_errors,hi91_equal_time,hi91_"
+           "backward_time,"
+           "hi91_accepted,hi91_candidate_ms,hi91_accepted_ms,hi91_rejected_ms,"
+           "hi91_last_chunk_host_us\n";
     uint64_t flagged = 0, stale = 0, violations = 0, imu_stale = 0;
     for (const auto &r : rows) {
       csv << r.elapsed_us << ',' << r.sequence << ',' << r.age_ms << ','
           << r.failsafe << ',' << r.lost << ',' << r.fresh << ',' << r.requested
           << ',' << r.imu_sequence << ',' << r.imu_age_us << ',' << r.imu_valid
-          << ',' << r.imu_fresh << '\n';
+          << ',' << r.imu_fresh << ',' << r.hi91.chunks << ',' << r.hi91.bytes
+          << ',' << r.hi91.gaps << ',' << r.hi91.resync_bytes << ','
+          << r.hi91.length_errors << ',' << r.hi91.decode_errors << ','
+          << r.hi91.attitude_errors << ',' << r.hi91.nonfinite_errors << ','
+          << r.hi91.equal_time << ',' << r.hi91.backward_time << ','
+          << r.hi91.accepted << ',' << r.hi91.last_candidate_ms << ','
+          << r.hi91.last_accepted_ms << ',' << r.hi91.last_rejected_ms << ','
+          << r.hi91.last_chunk_host_us << '\n';
       imu_stale += r.imu_sequence && !r.imu_fresh;
       flagged += r.sequence && (r.failsafe || r.lost);
       stale += r.sequence && !r.fresh;
@@ -140,6 +155,19 @@ int main(int argc, char **argv) {
               << " imu_stale_ticks=" << imu_stale
               << " transport_ok=" << transport_ok << " saved=" << output << '\n'
               << "未观察到的失效类型不算通过；不验证实际电机停机或重新使能。\n";
+    if (!rows.empty() && imu_mode) {
+      const auto &d = rows.back().hi91;
+      std::cout << "HI91 chunks=" << d.chunks << " bytes=" << d.bytes
+                << " gaps=" << d.gaps << " accepted=" << d.accepted
+                << " decode_errors=" << d.decode_errors
+                << " attitude_errors=" << d.attitude_errors
+                << " nonfinite_errors=" << d.nonfinite_errors
+                << " equal_time=" << d.equal_time
+                << " backward_time=" << d.backward_time
+                << " candidate_ms=" << d.last_candidate_ms
+                << " accepted_ms=" << d.last_accepted_ms
+                << " rejected_ms=" << d.last_rejected_ms << '\n';
+    }
     return transport_ok && !violations ? 0 : 1;
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
