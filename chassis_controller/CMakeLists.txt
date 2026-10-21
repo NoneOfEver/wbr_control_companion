@@ -113,3 +113,7 @@ add_test(NAME usb_unplug_contracts COMMAND ${Python3_EXECUTABLE}
 add_executable(remote_loss measurements/remote_loss.cpp)
 target_link_libraries(remote_loss PRIVATE chassis_runtime)
 target_compile_options(remote_loss PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
+add_executable(conventions measurements/conventions.cpp)
+target_link_libraries(conventions PRIVATE chassis_runtime)
+target_compile_options(conventions PRIVATE -Wall -Wextra -Wpedantic -Werror)
