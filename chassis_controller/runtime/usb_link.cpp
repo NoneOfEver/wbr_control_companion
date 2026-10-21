@@ -286,7 +286,10 @@ void UsbLink::Events() {
       if (!active_)
         break;
     }
-    timeval timeout{0, 20000};
+    // Pending lost-frame policy needs a timer even without UART traffic.
+    if (ready_ && !failed_ && !closing_)
+      decoder_.PollRemoteTimeout(rt::MonotonicTimeNs() / 1000);
+    timeval timeout{0, decoder_.remote_timeout_pending() ? 1000 : 20000};
     const uint64_t call_start =
         options_.fault_trace ? rt::MonotonicTimeNs() : 0;
     const int result =

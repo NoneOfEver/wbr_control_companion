@@ -171,7 +171,9 @@ int main(int argc, char **argv) {
       imu_stale += r.imu_sequence && !r.imu_fresh;
       flagged += r.sequence && (r.failsafe || r.lost);
       stale += r.sequence && !r.fresh;
-      violations += r.requested && (!r.fresh || r.failsafe || r.lost);
+      // MCU retains prior state for isolated frame_lost; it takes priority
+      // over failsafe when both bits occur in the same discarded frame.
+      violations += r.requested && (!r.fresh || (r.failsafe && !r.lost));
     }
     csv.close();
     if (!csv)

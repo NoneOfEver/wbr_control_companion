@@ -90,3 +90,23 @@ includes IMU/leg kinematics and need not become true merely because all motors
 are fresh. Hardware receipt, motor errors and physical stop are not independently
 proved by this capture. This is side-level feedback-loss/recovery coverage;
 individual motor electrical isolation and enabled-controller safety remain untested.
+
+## MCU-compatible SBUS lost-frame policy
+
+The host now matches RemoteInputModule: frame_lost takes precedence, discards
+that frame and does not advance the remote publication sequence. Last valid
+commands persist for isolated losses. The first lost frame starts a 1000 ms
+window (configured wfly_frame_lost_timeout_ms); reaching the deadline publishes
+one disabled state, even without additional UART input. The USB event owner
+polls this deadline, using a 1 ms event wait while pending. It does not synthesize
+an explicit disable-switch pose. A non-frame_lost frame cancels the timer;
+failsafe on such a frame immediately publishes disabled, otherwise switch and
+channel mapping are unchanged. Both flags together follow original MCU lost-frame
+precedence. Complete silence still expires via ChassisInputReader remote timeout.
+
+The capture's unsafe_enable_requests no longer treats an isolated lost frame
+with retained enable as an error. It still checks stale-input enable and failsafe
+without frame_lost. Cumulative flagged ticks describe raw flags, not a guarantee
+that the input publication changed. Contract tests separately verify sustained
+lost-frame timeout and publication sequence behavior. Re-run the switch sequence
+before enabled hardware operation; earlier measurements used the old policy.

@@ -14,6 +14,8 @@ void SensorDecoder::Reset() {
   latest_ = {};
   streams_ = {};
   remote_sequence_ = imu_sequence_ = 0;
+  remote_lost_active_ = remote_lost_disabled_ = false;
+  remote_lost_start_us_ = 0;
   hi91_time_guard_.Reset();
   store_.Publish(latest_);
 }
@@ -85,7 +87,8 @@ bool SensorDecoder::Consume(const bridge::Packet &packet, uint64_t host_us) {
       stream.size = 0;
       return false;
     }
-    Feed(port, packet.data() + 24, packet[11], host_us - age);
+    Feed(port, packet.data() + 24, packet[11],
+         port == 0 ? host_us : host_us - age);
   } else if (packet[9] == uint8_t(Kind::Imu)) {
     if (packet[10] != 25)
       return false;
@@ -123,7 +126,21 @@ void SensorDecoder::Feed(unsigned port, const uint8_t *data, size_t count,
       ParseHi91(stream, timestamp);
   }
 }
-void SensorDecoder::ParseRemote(Stream &stream, uint64_t) {
+void SensorDecoder::PollRemoteTimeout(uint64_t host_now_us) {
+  if (!remote_timeout_pending() || host_now_us < remote_lost_start_us_ ||
+      host_now_us - remote_lost_start_us_ <
+          uint64_t(modules::remote_input_params::
+                       kRemoteInputWflyFrameLostTimeoutMs) *
+              1000)
+    return;
+  latest_.control.remote = {};
+  latest_.control.remote.source = msg::kRemoteInputWfly;
+  latest_.control.remote.sequence = ++remote_sequence_;
+  latest_.control.remote_disable_pose = false;
+  remote_lost_disabled_ = true;
+  store_.Publish(latest_);
+}
+void SensorDecoder::ParseRemote(Stream &stream, uint64_t host_us) {
   // UART10 is configured by the production board as SBUS 100k 8E2.
   while (stream.size && stream.bytes[0] != protocols::kWflySbusStartByte)
     ConsumeBytes(stream, 1);
@@ -136,6 +153,19 @@ void SensorDecoder::ParseRemote(Stream &stream, uint64_t) {
   }
   latest_.peripheral.sbus_failsafe = decoded.failsafe;
   latest_.peripheral.sbus_frame_lost = decoded.frame_lost;
+  // Match MCU priority: frame_lost is discarded before failsafe handling.
+  if (decoded.frame_lost) {
+    latest_.control.remote_disable_pose = false;
+    if (!remote_lost_active_) {
+      remote_lost_active_ = true;
+      remote_lost_disabled_ = false;
+      remote_lost_start_us_ = host_us;
+    }
+    PollRemoteTimeout(host_us);
+    ConsumeBytes(stream, 25);
+    return;
+  }
+  remote_lost_active_ = remote_lost_disabled_ = false;
   msg::RemoteInputState remote{};
   remote.source = msg::kRemoteInputWfly;
   auto normalized = [](uint16_t value) {
@@ -155,8 +185,8 @@ void SensorDecoder::ParseRemote(Stream &stream, uint64_t) {
   };
   const auto ch4 = position(decoded.msg[4]), ch5 = position(decoded.msg[5]);
   latest_.control.remote_disable_pose =
-      !decoded.failsafe && !decoded.frame_lost && ch4 == 0 && ch5 == 0;
-  if (!decoded.failsafe && !decoded.frame_lost) {
+      !decoded.failsafe && ch4 == 0 && ch5 == 0;
+  if (!decoded.failsafe) {
     remote.robot_enable = (ch4 != 0 || ch5 != 0);
     remote.run = remote.robot_enable;
     if (remote.robot_enable) {

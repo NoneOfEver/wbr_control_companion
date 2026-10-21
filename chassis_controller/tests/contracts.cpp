@@ -48,6 +48,57 @@ std::array<uint8_t, 25> Sbus(bool enabled) {
 }
 } // namespace
 int main() {
+  {
+    host::SensorStore remote_store;
+    host::SensorDecoder remote_decoder(remote_store);
+    uint32_t chunk_sequence = 0;
+    auto send_remote = [&](std::array<uint8_t, 25> frame, uint64_t host_us) {
+      return remote_decoder.Consume(Uart(1, chunk_sequence++, frame.data(), 25),
+                                    host_us);
+    };
+    auto enabled = Sbus(true);
+    auto lost = enabled;
+    lost[23] = 4;
+    CHECK(send_remote(enabled, 10000));
+    const auto sequence = remote_store.Read().control.remote.sequence;
+    CHECK(send_remote(lost, 24000));
+    CHECK(remote_store.Read().control.remote.robot_enable);
+    CHECK(remote_store.Read().control.remote.sequence == sequence);
+    CHECK(send_remote(enabled, 38000)); // isolated loss never disabled
+    CHECK(remote_store.Read().control.remote.robot_enable);
+    CHECK(!remote_decoder.remote_timeout_pending());
+    remote_decoder.PollRemoteTimeout(2000000);
+    CHECK(remote_store.Read().control.remote.robot_enable); // timer cancelled
+    CHECK(send_remote(lost, 2100000));
+    const auto held_sequence = remote_store.Read().control.remote.sequence;
+    CHECK(send_remote(lost,
+                      2500000)); // continuous lost frames do not renew state
+    CHECK(remote_store.Read().control.remote.sequence == held_sequence);
+    remote_decoder.PollRemoteTimeout(3099999);
+    CHECK(remote_store.Read().control.remote.robot_enable);
+    remote_decoder.PollRemoteTimeout(3100000);
+    CHECK(!remote_store.Read().control.remote.robot_enable);
+    CHECK(remote_store.Read().control.remote.sequence == held_sequence + 1);
+    remote_decoder.PollRemoteTimeout(4000000);
+    CHECK(send_remote(lost, 4100000));
+    CHECK(remote_store.Read().control.remote.sequence == held_sequence + 1);
+    CHECK(send_remote(enabled, 4200000));
+    CHECK(remote_store.Read().control.remote.robot_enable);
+    auto failsafe = enabled;
+    failsafe[23] = 8;
+    CHECK(send_remote(failsafe, 4201000));
+    CHECK(!remote_store.Read().control.remote.robot_enable); // immediate
+    CHECK(send_remote(enabled, 4202000));
+    auto both = enabled;
+    both[23] = 12;
+    CHECK(send_remote(both, 4203000));
+    CHECK(remote_store.Read()
+              .control.remote.robot_enable); // exact MCU precedence
+    remote_decoder.Reset();
+    remote_decoder.PollRemoteTimeout(6000000);
+    CHECK(!remote_store.Read().control.remote.sequence);
+    CHECK(!remote_decoder.remote_timeout_pending());
+  }
   host::Hi91TimeGuard time_guard;
   CHECK(time_guard.Accept(100000, 1000, 3000, true));
   CHECK(!time_guard.Accept(10, 2000, 3000, true)); // still fresh
