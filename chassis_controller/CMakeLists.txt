@@ -107,3 +107,5 @@ add_test(NAME fault_recovery_contracts COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/fault_recovery_contracts.py
  $<TARGET_FILE:fault_zero_worker> $<TARGET_FILE:production_usb_mock>)
 set_tests_properties(fault_recovery_contracts PROPERTIES TIMEOUT 25)
+add_test(NAME usb_unplug_contracts COMMAND ${Python3_EXECUTABLE}
+ ${CMAKE_CURRENT_SOURCE_DIR}/tests/usb_unplug_contracts.py)

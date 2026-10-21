@@ -102,7 +102,37 @@ intervals are MCU-local, **not time from the OS signal or physical motor stop**.
 Raw evidence is `first_no_rt_report.json`; the NUC report is
 `~/wbr_realtime_lab/results/fault_recovery_first_no_rt/report.json`.
 
-The same suite with production realtime host configuration is still pending
-because the remote session lacks passwordless sudo. Physical USB detach and
-hardware motor stop timing also remain pending. Do not label this as full
-fault/recovery acceptance for an enabled robot.
+The operator subsequently ran the production realtime suite and reported PASS
+for all three cases, including the 20..30 ms lease-stop submission checks.
+Hardware motor stop timing remains unmeasured.
+
+
+## Physical USB unplug/replug (operator assisted)
+
+Use the same currently flashed FLT1 diagnostic image; no new flash is needed.
+The MCU must remain powered independently throughout. Stop other USB owners.
+The worker sends only wheel zero-current and joint Exit frames, for at most
+60 seconds. This does not execute or rearm the controller algorithm.
+
+```bash
+cd ~/wbr_realtime_lab/src/wbr_control_companion
+sudo ./scripts/run_usb_unplug.sh \
+  --output ~/wbr_realtime_lab/results/usb_unplug_$(date +%Y%m%d-%H%M%S)
+```
+
+1. Wait for stage 1, then unplug the USB cable while keeping MCU power on.
+   Leave it unplugged until stage 2. The tool checks device removal and that the
+   old worker reports USB failure rather than silently reconnecting.
+2. At stage 2, reconnect to the same USB port. The tool waits for re-enumeration.
+3. At stage 3, press Enter to explicitly open a diagnostic session. Its snapshot
+   must preserve the earlier automatic stop, clear the old session and report no
+   stop-submission error. Lease expiry requires 20..30 ms from last accepted MCU
+   command; USB deconfiguration may stop earlier (0..30 ms).
+4. Only after those checks pass, a fresh 0.5-second stop-only session is opened
+   and must exit normally with explicit Stop. Results are saved to report.json.
+
+A changed USB device number and retained counters help reject an invalid test;
+a reset MCU cannot provide the intended retained stop evidence. Keep the supply
+on rather than relying solely on these checks to establish power continuity.
+The test measures MCU software stop submission and host/session recovery, not
+CAN hardware completion, physical motor stop or enabled-algorithm rearming.

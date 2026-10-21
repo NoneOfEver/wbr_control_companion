@@ -60,8 +60,8 @@ int main(int argc, char **argv) {
       else
         throw std::runtime_error("Unknown/missing argument: " + argument);
     }
-    if (!std::isfinite(seconds) || seconds <= 0 || seconds > 10)
-      throw std::runtime_error("Worker duration must be (0,10] seconds");
+    if (!std::isfinite(seconds) || seconds <= 0 || seconds > 60)
+      throw std::runtime_error("Worker duration must be (0,60] seconds");
     std::signal(SIGINT, Signal);
     std::signal(SIGTERM, Signal);
     wbr::host::SensorStore sensors;

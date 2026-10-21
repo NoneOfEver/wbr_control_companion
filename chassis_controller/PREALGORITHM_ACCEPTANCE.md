@@ -38,8 +38,10 @@ The dedicated `run_fault_recovery.sh` suite now automates owned-process exit,
 kill and freeze against the opt-in MCU FLT1 page; see its measurement README.
 A first non-RT hardware run passed all three process cases: explicit stop
 submission 848 us after last accepted command, lease-stop submissions 20913 and
-20995 us; old sessions were cleared. RT-host repetition and physical USB detach
-remain pending; this does not measure moving-motor stopping time.
+20995 us; old sessions were cleared. The operator also reported all three cases passing with the production RT host.
+Physical USB detach remains pending; run `scripts/run_usb_unplug.sh` with
+independent MCU power and follow its staged prompts. These tests do not measure
+moving-motor stopping time.
 
 Verify SBUS frame-lost/failsafe, invalid stream and true input timeout cause the
 intended disabled state. Test HI91 stale/invalid input and motor-feedback loss.
