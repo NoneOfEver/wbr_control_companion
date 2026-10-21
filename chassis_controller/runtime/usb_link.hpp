@@ -26,6 +26,10 @@ struct UsbOptions {
   // Optional test observer: once per 128-byte OUT completion, including cancel.
   // Same event owner and context as observe; must be bounded/nonblocking.
   void (*command_completed)(void *, bool) = nullptr;
+  // Optional fault-test trace. Event owner only; bounded, no allocation or I/O.
+  // kind: 0 event-call return, 1 IN error, 2 OUT error. Times are host
+  // monotonic ns.
+  void (*fault_trace)(void *, unsigned, int, uint64_t, uint64_t) = nullptr;
 };
 class UsbLink {
 public:

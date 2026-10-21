@@ -142,6 +142,9 @@ void LIBUSB_CALL UsbLink::Receive(libusb_transfer *transfer) {
     return;
   if (transfer->status != LIBUSB_TRANSFER_COMPLETED ||
       transfer->actual_length != 64) {
+    if (self.options_.fault_trace)
+      self.options_.fault_trace(self.options_.observer_context, 1,
+                                transfer->status, rt::MonotonicTimeNs(), 0);
     self.Fail("USB IN disconnected or invalid length");
     return;
   }
@@ -192,8 +195,12 @@ void LIBUSB_CALL UsbLink::Sent(libusb_transfer *transfer) {
         transfer->status == LIBUSB_TRANSFER_COMPLETED &&
             transfer->actual_length == transfer->length);
   if (!self.closing_ && (transfer->status != LIBUSB_TRANSFER_COMPLETED ||
-                         transfer->actual_length != transfer->length))
+                         transfer->actual_length != transfer->length)) {
+    if (self.options_.fault_trace)
+      self.options_.fault_trace(self.options_.observer_context, 2,
+                                transfer->status, rt::MonotonicTimeNs(), 0);
     self.Fail("USB OUT disconnected or incomplete");
+  }
   output.free.store(true, std::memory_order_release);
 }
 bool UsbLink::Transmit(const uint8_t *data, size_t length) {
@@ -269,8 +276,13 @@ void UsbLink::Events() {
         break;
     }
     timeval timeout{0, 20000};
+    const uint64_t call_start =
+        options_.fault_trace ? rt::MonotonicTimeNs() : 0;
     const int result =
         libusb_handle_events_timeout_completed(context_, &timeout, nullptr);
+    if (options_.fault_trace)
+      options_.fault_trace(options_.observer_context, 0, result, call_start,
+                           rt::MonotonicTimeNs());
     if (result && result != LIBUSB_ERROR_INTERRUPTED)
       Fail("USB event handling error");
   }

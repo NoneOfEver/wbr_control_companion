@@ -15,6 +15,60 @@ void Signal(int) { stopping = 1; }
 struct Probe {
   wire::FaultSnapshot snapshot;
   bool matched = false;
+  // Written by event owner, read only after Close joins it.
+  uint64_t event_calls = 0, fast_run = 0, max_fast_run = 0;
+  uint64_t max_fast_begin_ns = 0, max_fast_end_ns = 0, fast_begin_ns = 0;
+  uint64_t first_transfer_error_ns = 0, first_event_error_ns = 0;
+  int first_transfer_status = -1, first_event_result = 0;
+  unsigned first_transfer_kind = 0;
+  // Written by control owner; same host monotonic clock as event observations.
+  uint64_t last_good_wake_ns = 0, fault_wake_ns = 0, fault_release_ns = 0;
+  uint64_t unhealthy_ns = 0;
+  static void Trace(void *context, unsigned kind, int result, uint64_t begin,
+                    uint64_t end) {
+    auto &self = *static_cast<Probe *>(context);
+    if (kind != 0) {
+      if (!self.first_transfer_error_ns) {
+        self.first_transfer_error_ns = begin;
+        self.first_transfer_status = result;
+        self.first_transfer_kind = kind;
+      }
+      return;
+    }
+    ++self.event_calls;
+    if (result && !self.first_event_error_ns) {
+      self.first_event_error_ns = end;
+      self.first_event_result = result;
+    }
+    // Fast calls can also be ordinary data traffic; this alone proves no spin.
+    if (end - begin < 10000) {
+      if (!self.fast_run)
+        self.fast_begin_ns = begin;
+      if (++self.fast_run > self.max_fast_run) {
+        self.max_fast_run = self.fast_run;
+        self.max_fast_begin_ns = self.fast_begin_ns;
+        self.max_fast_end_ns = end;
+      }
+    } else
+      self.fast_run = 0;
+  }
+  void PrintTrace(const std::string &error) const {
+    std::cerr << "USB fault trace (host monotonic ns):"
+              << " event_calls=" << event_calls
+              << " max_fast_run=" << max_fast_run
+              << " fast_begin=" << max_fast_begin_ns
+              << " fast_end=" << max_fast_end_ns
+              << " first_event_error=" << first_event_error_ns
+              << " event_result=" << first_event_result
+              << " first_transfer_error=" << first_transfer_error_ns
+              << " transfer_kind=" << first_transfer_kind
+              << " transfer_status=" << first_transfer_status
+              << " last_good_wake=" << last_good_wake_ns
+              << " fault_wake=" << fault_wake_ns
+              << " fault_release=" << fault_release_ns
+              << " unhealthy=" << unhealthy_ns << " link_error=[" << error
+              << "]\n";
+  }
   static void Observe(void *context, const wire::Packet &packet, uint64_t,
                       uint64_t) {
     if (packet[9] == uint8_t(wire::Kind::Ready)) {
@@ -38,9 +92,11 @@ struct Probe {
 };
 struct Session {
   wbr::host::UsbLink &link;
+  Probe &probe;
   ~Session() {
     link.Stop();
     link.Close();
+    probe.PrintTrace(link.error());
   }
 };
 } // namespace
@@ -69,13 +125,14 @@ int main(int argc, char **argv) {
     options.ready_query_page = wire::kFaultQueryPage;
     options.observe = Probe::Observe;
     options.observer_context = &probe;
+    options.fault_trace = Probe::Trace;
     std::string error;
     if (options.realtime && !rt::ConfigureCurrentThread(3, 80, error))
       throw std::runtime_error(error);
     wbr::host::UsbLink link(sensors, options);
     if (!link.Open())
       throw std::runtime_error(link.error());
-    Session session{link};
+    Session session{link, probe};
     if (!probe.matched)
       throw std::runtime_error("FLT1 diagnostics unavailable: flash fault "
                                "diagnostic image before injecting faults");
@@ -93,13 +150,18 @@ int main(int argc, char **argv) {
       const auto now = rt::MonotonicTimeNs();
       // SIGCONT cannot resume stale commands or silently create a new session.
       if (now - release >= wire::kCommandTimeoutUs * 1000ULL) {
+        probe.fault_wake_ns = now;
+        probe.fault_release_ns = release;
         std::cerr << "Command deadline expired; no rearm or new Hello\n";
         return 2;
       }
       if (stopping)
         break;
-      if (!link.Send(zero))
+      probe.last_good_wake_ns = now;
+      if (!link.Send(zero)) {
+        probe.unhealthy_ns = rt::MonotonicTimeNs();
         throw std::runtime_error("USB session unhealthy; no reconnect/rearm");
+      }
       if (now - release >= 1000000)
         release = now;
     }

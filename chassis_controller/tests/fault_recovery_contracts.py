@@ -17,6 +17,8 @@ environment = dict(os.environ,LD_PRELOAD=backend,WBR_MOCK_FAULT_DIAG='1',
                    WBR_MOCK_FULL_LOAD='1',WBR_MOCK_REQUIRE_PREPOST='1')
 query = subprocess.run([binary,'--no-rt','--query'],env=environment,capture_output=True,text=True,timeout=5)
 assert query.returncode == 0, query.stderr
+assert "USB fault trace (host monotonic ns):" in query.stderr
+assert "event_calls=" in query.stderr and "link_error=[" in query.stderr
 assert json.loads(query.stdout)['snapshot']['last_stop_submit_us'] == 120100
 missing = dict(environment)
 del missing['WBR_MOCK_FAULT_DIAG']

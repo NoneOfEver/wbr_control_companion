@@ -136,3 +136,23 @@ a reset MCU cannot provide the intended retained stop evidence. Keep the supply
 on rather than relying solely on these checks to establish power continuity.
 The test measures MCU software stop submission and host/session recovery, not
 CAN hardware completion, physical motor stop or enabled-algorithm rearming.
+
+
+### Diagnosing a deadline exit during detach
+
+The fault worker enables an optional bounded USB event observer; production
+callers leave it null. No trace formatting, allocation or disk I/O occurs in
+callbacks. After Stop/Close joins the event owner, stderr prints a summary,
+also preserved in report.json child_stderr. CPU/FIFO settings and pass criteria
+are unchanged.
+
+All trace times are NUC CLOCK_MONOTONIC nanoseconds. first_transfer_error is
+the first non-completed/invalid-length callback before shutdown (kind 1 IN,
+2 OUT; status is libusb_transfer_status, NO_DEVICE=5). first_event_error and
+event_result describe the first nonzero event-handler return. max_fast_run
+counts consecutive event calls shorter than 10 us and records their time range;
+normal traffic can also cause fast returns, so this alone does not prove spin.
+Compare that range and first error with last_good_wake, fault_release and
+fault_wake (deadline exit), or unhealthy (Send failure). link_error preserves
+the first recorded USB link error. A zero timestamp means not observed.
+The trace is diagnostic instrumentation and can slightly perturb timing.
