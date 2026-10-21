@@ -182,6 +182,23 @@ int main() {
   imu_sources.imu.precise_timestamp_us = 20000;
   imu_freshness.Read(imu_sources, checked, 20000, .001, false);
   CHECK(checked.imu_fresh);
+  modules::ChassisInputReader motor_reader;
+  modules::ControllerInputs motor_sources{};
+  motor_sources.motors[0].valid = motor_sources.motors[1].valid = true;
+  motor_sources.motors[0].precise_timestamp_us = 10000;
+  motor_sources.motors[1].precise_timestamp_us = 12000;
+  motor_reader.Read(motor_sources, checked,
+                    10000 + modules::chassis_config::kMotorTimeoutUs, .001,
+                    false);
+  CHECK(!(checked.motor_stale_mask & 3));
+  motor_reader.Read(motor_sources, checked,
+                    10001 + modules::chassis_config::kMotorTimeoutUs, .001,
+                    false);
+  CHECK((checked.motor_stale_mask & 3) == 1); // only left wheel expires
+  CHECK(!checked.feedback_valid && (checked.feedback_invalid_mask & 1));
+  motor_sources.motors[0].precise_timestamp_us = 13000;
+  motor_reader.Read(motor_sources, checked, 13001, .001, false);
+  CHECK(!(checked.motor_stale_mask & 3));
   // A reconnect clears both published state and an unfinished SBUS frame.
   decoder.Reset();
   CHECK(decoder.Consume(Uart(1, 0, sbus.data(), 10), 2000));

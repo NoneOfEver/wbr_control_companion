@@ -68,3 +68,25 @@ For a connected control run, use `scripts/run_hi91_baseline.sh NEW.csv`.
 This prints only keep-connected instructions; do not unplug any connectors or
 interrupt sensor power during its 60-second capture. Both IN and OUT failures
 now report libusb completion status and actual/expected transfer lengths.
+
+## Motor feedback loss, one side at a time
+
+Use `sudo ./scripts/run_motor_feedback_loss.sh NEW.csv`. Keep MCU, USB, all
+sensors and the other motor group powered; interrupt only the selected side's
+motor supply (normal about 5 s, off about 20 s, restore until capture ends).
+Do not unplug CAN or change bus termination. User's wiring permits side-group
+power switching, not individual motors. Start with left side; use a separate
+run/file for right side. The capture always submits only zero-current/Exit.
+No motor-enable or control algorithm is run even after power recovery.
+
+CSV records production ChassisInputReader motor_stale_mask, six independent ages,
+feedback_invalid_mask and feedback_valid. Threshold is 3000 us, fresh at equality.
+Bit order: left wheel, right wheel, left B, left D, right B, right D. Expected
+side masks are left=13 (0x0d), right=50 (0x32), after initial startup settles.
+Cold startup samples are included in stale totals, so verify transitions and
+unaffected-side continuity rather than accepting nonzero totals alone. Invalid
+or undecodable feedback age is UINT32_MAX. Aggregate feedback validity also
+includes IMU/leg kinematics and need not become true merely because all motors
+are fresh. Hardware receipt, motor errors and physical stop are not independently
+proved by this capture. This is side-level feedback-loss/recovery coverage;
+individual motor electrical isolation and enabled-controller safety remain untested.
