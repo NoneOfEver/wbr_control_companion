@@ -63,3 +63,8 @@ Ordinary uint32 device wrap remains forward progress. time_rebases records
 qualified changes; it establishes a plausible new epoch, not hardware proof of
 a reboot. Normal forward-frame CRC policy remains unchanged. This is input
 recovery only; it does not implement controller rearm or motor enable.
+
+For a connected control run, use `scripts/run_hi91_baseline.sh NEW.csv`.
+This prints only keep-connected instructions; do not unplug any connectors or
+interrupt sensor power during its 60-second capture. Both IN and OUT failures
+now report libusb completion status and actual/expected transfer lengths.

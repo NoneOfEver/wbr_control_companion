@@ -24,7 +24,9 @@ struct Row {
 } // namespace
 int main(int argc, char **argv) {
   try {
-    const bool imu_mode = argc == 3 && std::string(argv[1]) == "--imu";
+    const bool baseline = argc == 3 && std::string(argv[1]) == "--imu-baseline";
+    const bool imu_mode =
+        baseline || (argc == 3 && std::string(argv[1]) == "--imu");
     if (argc != 2 && !imu_mode)
       throw std::runtime_error("Usage: remote_loss [--imu] NEW.csv");
     const char *output = argv[imu_mode ? 2 : 1];
@@ -52,7 +54,10 @@ int main(int argc, char **argv) {
     uint64_t exit_elapsed_us = 0, exit_lateness_us = 0;
     std::cout
         << "60 s stop-only capture; no controller algorithm or Enter/MIT.\n";
-    if (imu_mode)
+    if (baseline)
+      std::cout
+          << "HI91静态对照：60秒内保持所有插头连接，不插拔、不切断电源。\n";
+    else if (imu_mode)
       std::cout << "HI91测试：正常约5秒，断开HI91专用插头约20秒，再恢复。\n"
                    "保持MCU、USB及其他设备供电连接；不要断开共用电源。\n"
                 << "Production IMU timeout_ms="

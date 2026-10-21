@@ -201,7 +201,9 @@ void LIBUSB_CALL UsbLink::Sent(libusb_transfer *transfer) {
     if (self.options_.fault_trace)
       self.options_.fault_trace(self.options_.observer_context, 2,
                                 transfer->status, rt::MonotonicTimeNs(), 0);
-    self.Fail("USB OUT disconnected or incomplete");
+    self.Fail("USB OUT status=" + std::to_string(int(transfer->status)) +
+              " actual_length=" + std::to_string(transfer->actual_length) +
+              " expected_length=" + std::to_string(transfer->length));
   }
   output.free.store(true, std::memory_order_release);
 }
