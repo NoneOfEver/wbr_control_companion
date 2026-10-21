@@ -41,6 +41,8 @@ int main(int argc, char **argv) {
     const uint64_t start = wbr::realtime::MonotonicTimeNs();
     uint64_t release = start;
     bool transport_ok = true;
+    std::string termination = "duration";
+    uint64_t exit_elapsed_us = 0, exit_lateness_us = 0;
     std::cout
         << "60 s stop-only capture; no controller algorithm or Enter/MIT.\n"
            "保持遥控器开启约5秒，然后关闭约20秒，再开启；保持接收机和MCU供电。"
@@ -49,12 +51,23 @@ int main(int argc, char **argv) {
         << std::endl;
     while (!stopping && rows.size() < 60000) {
       release += 1000000;
-      if (!wbr::realtime::SleepUntilNs(release, error))
+      if (!wbr::realtime::SleepUntilNs(release, error)) {
+        termination = stopping ? "signal" : "sleep_error";
+        transport_ok = stopping != 0;
         break;
+      }
       const uint64_t now = wbr::realtime::MonotonicTimeNs();
       if (now - start >= 60000000000ULL)
         break;
-      if (now - release >= 20000000 || !link.healthy()) {
+      exit_elapsed_us = (now - start) / 1000;
+      exit_lateness_us = (now - release) / 1000;
+      if (now - release >= 20000000) {
+        termination = "control_deadline";
+        transport_ok = false;
+        break;
+      }
+      if (!link.healthy()) {
+        termination = "usb_unhealthy";
         transport_ok = false;
         break;
       }
@@ -66,12 +79,16 @@ int main(int argc, char **argv) {
                       snapshot.peripheral.sbus_frame_lost, input.remote_fresh,
                       input.requested_enable});
       if (!link.Send(zero)) {
+        termination = "usb_send_failed";
         transport_ok = false;
         break;
       }
       if (now - release >= 1000000)
         release = now;
     }
+    if (stopping)
+      termination = "signal";
+    const auto usb_error = link.error();
     link.Stop();
     link.Close();
     std::ofstream csv(argv[1]);
@@ -91,6 +108,18 @@ int main(int argc, char **argv) {
     csv.close();
     if (!csv)
       throw std::runtime_error("CSV export failed");
+    std::ofstream metadata(std::string(argv[1]) + ".status.txt");
+    metadata << "termination=" << termination
+             << " elapsed_us=" << exit_elapsed_us
+             << " lateness_us=" << exit_lateness_us << " usb_error=["
+             << usb_error << "] sleep_error=[" << error << "]\n";
+    metadata.close();
+    if (!metadata)
+      throw std::runtime_error("Status export failed");
+    std::cout << "termination=" << termination
+              << " elapsed_us=" << exit_elapsed_us
+              << " lateness_us=" << exit_lateness_us << " usb_error=["
+              << usb_error << "] sleep_error=[" << error << "]\n";
     std::cout << "samples=" << rows.size() << " flagged_ticks=" << flagged
               << " stale_ticks=" << stale
               << " unsafe_enable_requests=" << violations
