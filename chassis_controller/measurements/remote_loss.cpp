@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+#include "chassis_config.h"
 #include "chassis_input_reader.h"
 #include "full_load/zero_commands.hpp"
 #include "usb_link.hpp"
@@ -15,14 +16,19 @@ struct Row {
   uint64_t elapsed_us;
   uint32_t sequence, age_ms;
   bool failsafe, lost, fresh, requested;
+  uint32_t imu_sequence;
+  uint64_t imu_age_us;
+  bool imu_valid, imu_fresh;
 };
 } // namespace
 int main(int argc, char **argv) {
   try {
-    if (argc != 2)
-      throw std::runtime_error("Usage: remote_loss NEW.csv");
+    const bool imu_mode = argc == 3 && std::string(argv[1]) == "--imu";
+    if (argc != 2 && !imu_mode)
+      throw std::runtime_error("Usage: remote_loss [--imu] NEW.csv");
+    const char *output = argv[imu_mode ? 2 : 1];
     // Refuse overwrite before opening USB. Export only after shutdown.
-    if (std::ifstream(argv[1]).good())
+    if (std::ifstream(output).good())
       throw std::runtime_error("CSV already exists");
     std::vector<Row> rows;
     rows.reserve(60000);
@@ -44,11 +50,16 @@ int main(int argc, char **argv) {
     std::string termination = "duration";
     uint64_t exit_elapsed_us = 0, exit_lateness_us = 0;
     std::cout
-        << "60 s stop-only capture; no controller algorithm or Enter/MIT.\n"
-           "保持遥控器开启约5秒，然后关闭约20秒，再开启；保持接收机和MCU供电。"
-           "\n"
-           "不要拔USB或操作电机；完成后导出CSV。"
-        << std::endl;
+        << "60 s stop-only capture; no controller algorithm or Enter/MIT.\n";
+    if (imu_mode)
+      std::cout << "HI91测试：正常约5秒，断开HI91专用插头约20秒，再恢复。\n"
+                   "保持MCU、USB及其他设备供电连接；不要断开共用电源。\n"
+                << "Production IMU timeout_ms="
+                << modules::chassis_config::kImuTimeoutMs << '\n';
+    else
+      std::cout
+          << "遥控输入测试：按本轮约定关闭遥控器或断开接收机，约20秒后恢复。\n";
+    std::cout << "保持MCU和USB正常；完成后导出CSV。" << std::endl;
     while (!stopping && rows.size() < 60000) {
       release += 1000000;
       if (!wbr::realtime::SleepUntilNs(release, error)) {
@@ -77,7 +88,8 @@ int main(int argc, char **argv) {
       rows.push_back({(now - start) / 1000, input.remote.sequence,
                       input.remote_age_ms, snapshot.peripheral.sbus_failsafe,
                       snapshot.peripheral.sbus_frame_lost, input.remote_fresh,
-                      input.requested_enable});
+                      input.requested_enable, input.imu.sequence,
+                      input.imu_age_us, input.imu.valid, input.imu_fresh});
       if (!link.Send(zero)) {
         termination = "usb_send_failed";
         transport_ok = false;
@@ -91,16 +103,18 @@ int main(int argc, char **argv) {
     const auto usb_error = link.error();
     link.Stop();
     link.Close();
-    std::ofstream csv(argv[1]);
+    std::ofstream csv(output);
     if (!csv)
       throw std::runtime_error("Cannot create CSV");
     csv << "elapsed_us,sequence,age_ms,failsafe,frame_lost,fresh,requested_"
-           "enable\n";
-    uint64_t flagged = 0, stale = 0, violations = 0;
+           "enable,imu_sequence,imu_age_us,imu_valid,imu_fresh\n";
+    uint64_t flagged = 0, stale = 0, violations = 0, imu_stale = 0;
     for (const auto &r : rows) {
       csv << r.elapsed_us << ',' << r.sequence << ',' << r.age_ms << ','
           << r.failsafe << ',' << r.lost << ',' << r.fresh << ',' << r.requested
-          << '\n';
+          << ',' << r.imu_sequence << ',' << r.imu_age_us << ',' << r.imu_valid
+          << ',' << r.imu_fresh << '\n';
+      imu_stale += r.imu_sequence && !r.imu_fresh;
       flagged += r.sequence && (r.failsafe || r.lost);
       stale += r.sequence && !r.fresh;
       violations += r.requested && (!r.fresh || r.failsafe || r.lost);
@@ -108,7 +122,7 @@ int main(int argc, char **argv) {
     csv.close();
     if (!csv)
       throw std::runtime_error("CSV export failed");
-    std::ofstream metadata(std::string(argv[1]) + ".status.txt");
+    std::ofstream metadata(std::string(output) + ".status.txt");
     metadata << "termination=" << termination
              << " elapsed_us=" << exit_elapsed_us
              << " lateness_us=" << exit_lateness_us << " usb_error=["
@@ -123,8 +137,8 @@ int main(int argc, char **argv) {
     std::cout << "samples=" << rows.size() << " flagged_ticks=" << flagged
               << " stale_ticks=" << stale
               << " unsafe_enable_requests=" << violations
-              << " transport_ok=" << transport_ok << " saved=" << argv[1]
-              << '\n'
+              << " imu_stale_ticks=" << imu_stale
+              << " transport_ok=" << transport_ok << " saved=" << output << '\n'
               << "未观察到的失效类型不算通过；不验证实际电机停机或重新使能。\n";
     return transport_ok && !violations ? 0 : 1;
   } catch (const std::exception &error) {

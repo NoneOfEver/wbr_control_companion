@@ -136,6 +136,21 @@ int main() {
                  1000ULL * (modules::chassis_config::kRemoteTimeoutMs + 2),
                  .001, false);
   CHECK(!checked.remote_fresh && !checked.requested_enable);
+  modules::ChassisInputReader imu_freshness;
+  modules::ControllerInputs imu_sources{};
+  imu_sources.imu.valid = true;
+  imu_sources.imu.sequence = 1;
+  imu_sources.imu.precise_timestamp_us = 10000;
+  const uint64_t imu_timeout_us =
+      modules::chassis_config::kImuTimeoutMs * 1000ULL;
+  imu_freshness.Read(imu_sources, checked, 10000 + imu_timeout_us, .001, false);
+  CHECK(checked.imu_fresh);
+  imu_freshness.Read(imu_sources, checked, 10001 + imu_timeout_us, .001, false);
+  CHECK(!checked.imu_fresh);
+  imu_sources.imu.sequence = 2;
+  imu_sources.imu.precise_timestamp_us = 20000;
+  imu_freshness.Read(imu_sources, checked, 20000, .001, false);
+  CHECK(checked.imu_fresh);
   // A reconnect clears both published state and an unfinished SBUS frame.
   decoder.Reset();
   CHECK(decoder.Consume(Uart(1, 0, sbus.data(), 10), 2000));

@@ -26,3 +26,21 @@ Real receiver UART silence (if not produced by transmitter off) requires a
 separate operator-assisted source-disconnect test; do not unplug arbitrary wires
 while running this capture. Offline contracts check failsafe/frame-lost decoding
 and no-new-sequence timeout using the same production decoder/input reader.
+
+
+## HI91 source loss
+
+`sudo ./scripts/run_hi91_loss.sh NEW.csv` reuses this stop-only capture and adds
+imu_sequence, imu_age_us, imu_valid and imu_fresh columns. It uses the production
+ChassisInputReader (3 ms configured timeout), not an independent timeout policy.
+Cached imu_valid need not clear on silence; imu_fresh must clear after timeout.
+Normal operation for about 5 seconds, unplug the HI91-only connector for about
+20 seconds, reconnect and wait until capture ends. Keep MCU, USB, receiver and
+other sensors connected/powered. No full control algorithm runs. This verifies
+input classification only, not enabled-state stopping or rearming.
+
+Capture startup/steady state/dropout/recovery separately. The current decoder
+rejects backwards HI91 device timestamps; power cycling may therefore expose
+failure to recover, which must not be declared PASS solely because USB is healthy.
+Malformed/CRC fault injection is not performed by this hardware test. Production
+CRC policy remains unchanged (permissive). No enabled actuation is allowed.
