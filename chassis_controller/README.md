@@ -32,7 +32,10 @@ Real control output additionally requires `--enable-output`, a valid disabled
 remote switch pose observed after process startup, then the normal remote
 activation, fresh HI91 data, valid motor feedback and the existing state-machine
 arming/recovery conditions. Hardware control is not launched by build or tests.
-This software has not yet been validated on the physical robot after migration.
+On 2026-10-21 the operator completed two 30-second enabled hardware runs with
+zero missed releases and reported no observed control performance issue. See
+[the agent handoff](../docs/AGENT_HANDOFF_2026-10-21.md) for exact baseline, evidence
+and remaining validation limits.
 
 ## Source and behavior
 
