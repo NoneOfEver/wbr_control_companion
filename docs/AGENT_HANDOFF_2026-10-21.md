@@ -1,3 +1,5 @@
+> 通讯固件位置更新（2026-10-22）：USB 网关和 EtherCAT 从站基础已迁到 https://github.com/HNUST-Dust/dust-adapter ，入口分别为 apps/usb_gateway 与 apps/ethercat_slave。旧 wbr_control 应用路径只保留迁移指引；本文旧路径与旧诊断配置是历史记录，不再作为当前构建入口。
+
 > 历史记录：2026-10-22 已撤掉旧现场采集/压力测试与运行时诊断。本文中的旧脚本、诊断开关和构建路径不再是当前操作指令；清理状态见 `docs/PRODUCTION_CLEANUP_2026-10-22.md`。
 
 # WBR：NUC 底盘控制迁移与后续开发交接
