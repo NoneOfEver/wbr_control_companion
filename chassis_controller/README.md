@@ -72,8 +72,9 @@ substituted for or connected to this controller.
 The active control IMU source is HI91, matching the original resolved firmware
 configuration. UART10 is the existing SBUS 100000 8E2 remote input; UART2 is HI91
 921600 8N1. SBUS channel mapping and HI91 axis mapping are preserved. A broken
-UART stream resets partial-frame assembly; SBUS failsafe/frame-lost disables
-requests immediately (stricter than the old frame-lost hold policy).
+UART stream resets partial-frame assembly; SBUS frame-lost frames preserve the previous request for up to 1000 ms,
+matching the original MCU policy; a failsafe frame without frame-lost disables
+immediately. See the handoff for priority and timeout details.
 
 HI91 strict CRC defaults off, matching the original firmware configuration;
 `--strict-hi91-crc` enables rejection after its device CRC variant is verified.
@@ -118,19 +119,24 @@ not required on NUC. The current local comparison passed with maximum difference
 zero. Recovery/flight/jump/climb implementations were imported from the same
 manifested source version; the numerical comparison specifically covers balance.
 
-UART forwarding baseline measurement is available as an independent tool; see
-[measurement instructions and timing limits](measurements/README.md).
+## Production build and cleanup
 
-Every USB session completes event-thread realtime setup and preposts all four IN
-transfers before sending Hello. Setup or IN-submit failure prevents session start;
-this is mandatory in both the controller and capture tool. The startup backlog
-A/B is recorded in `measurements/HI91_STARTUP_INVESTIGATION.md`.
-Before real actuation, follow [the remaining acceptance work](PREALGORITHM_ACCEPTANCE.md).
+The historical pressure/capture applications and UART/lease diagnostic pages
+were removed on 2026-10-22. Production USB no longer exposes test observers,
+startup timing collectors or HI91 rejection counters. Sensor timestamps and
+protocol sequence numbers remain because they enforce freshness and continuity.
+USB failure details remain ordinary operational errors, not a profiling mode.
 
-The separate [full concurrent zero-output baseline](measurements/full_load/README.md)
-sends six stop-only CAN frames per 1-kHz cycle while receiving all sensors.
-It does not run the controller or enable joints.
+A production-only build creates no automated test binaries:
 
-The [stop-only fault/recovery suite](measurements/fault_recovery/README.md) tests
-owned-process termination, kill and freeze against opt-in MCU lease diagnostics.
-It observes stop submission and session invalidation, not physical motor stop.
+```bash
+cmake -S chassis_controller -B build/production -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+cmake --build build/production -j2
+```
+
+Developer regression builds use `-DBUILD_TESTING=ON`; the existing
+`scripts/build_chassis_controller.sh` selects that option and runs CTest.
+Foxglove work in progress is separate from the removed historical diagnostics.
+Every session still preposts all four IN transfers before Hello and preserves
+failed-event blocking, lease/session stop handling, HI91 epoch recovery and
+MCU-compatible SBUS lost-frame hold/timeout behavior.

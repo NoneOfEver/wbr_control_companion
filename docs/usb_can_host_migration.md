@@ -50,7 +50,7 @@ local development.
   sampled timing exports, stress protocols and per-cycle diagnostic ACKs from
   the production link. Preserve protocol versioning, validation, freshness and
   host-loss safe motor shutdown.
-- Keep historical tests available for reproducing measurements; do not erase
+- Historical capture executables were removed at the user’s request on 2026-10-22; preserve
   unrelated work or make the production target link them.
 - The robot has been on the floor throughout zero-torque tests. Building a real
   controller does not authorize launching nonzero-torque control on hardware.

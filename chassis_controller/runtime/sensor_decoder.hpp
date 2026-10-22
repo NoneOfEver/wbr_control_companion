@@ -33,7 +33,7 @@ private:
   SensorStore &store_;
   Snapshot latest_{};
   std::array<Stream, 3> streams_{};
-  uint32_t remote_sequence_ = 0, imu_sequence_ = 0, hi91_sensor_time_ = 0;
+  uint32_t remote_sequence_ = 0, imu_sequence_ = 0;
   Hi91TimeGuard hi91_time_guard_;
   bool remote_lost_active_ = false, remote_lost_disabled_ = false;
   uint64_t remote_lost_start_us_ = 0;

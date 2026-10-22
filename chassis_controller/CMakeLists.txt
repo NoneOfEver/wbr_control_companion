@@ -41,7 +41,10 @@ target_compile_options(chassis_runtime PRIVATE -Wall -Wextra -Wpedantic -Werror)
 add_executable(chassis_controller runtime/main.cpp)
 target_link_libraries(chassis_controller PRIVATE chassis_runtime)
 target_compile_options(chassis_controller PRIVATE -Wall -Wextra -Wpedantic -Werror)
-enable_testing()
+# Regression tests are explicit developer builds, not production artifacts.
+option(BUILD_TESTING "Build automated production regression tests" OFF)
+include(CTest)
+if(BUILD_TESTING)
 add_test(NAME production_controller_disabled_smoke COMMAND chassis_controller --simulate --no-rt --seconds 0.1)
 add_executable(chassis_contracts tests/contracts.cpp)
 target_link_libraries(chassis_contracts PRIVATE chassis_runtime)
@@ -74,16 +77,6 @@ if(WBR_REFERENCE_CHASSIS_DIR)
   $<TARGET_FILE:chassis_reference_balance> $<TARGET_FILE:chassis_balance_fixture>)
 endif()
 
-# Independent capture tool; never linked into the production controller.
-add_executable(uart_forwarding measurements/uart_forwarding.cpp)
-target_link_libraries(uart_forwarding PRIVATE chassis_runtime)
-target_compile_options(uart_forwarding PRIVATE -Wall -Wextra -Wpedantic -Werror)
-add_test(NAME uart_forwarding_capture COMMAND ${Python3_EXECUTABLE}
- ${CMAKE_CURRENT_SOURCE_DIR}/tests/uart_capture.py
- $<TARGET_FILE:uart_forwarding> $<TARGET_FILE:production_usb_mock>)
-set_tests_properties(uart_forwarding_capture PROPERTIES TIMEOUT 15)
-add_test(NAME uart_capture_offline_analysis COMMAND ${Python3_EXECUTABLE}
- ${CMAKE_CURRENT_SOURCE_DIR}/tests/uart_analysis.py)
 add_executable(usb_reconnect_contract tests/usb_reconnect.cpp)
 target_link_libraries(usb_reconnect_contract PRIVATE chassis_runtime)
 target_compile_options(usb_reconnect_contract PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -92,28 +85,5 @@ add_test(NAME production_usb_reconnect COMMAND ${CMAKE_COMMAND} -E env
  $<TARGET_FILE:usb_reconnect_contract>)
 set_tests_properties(production_usb_reconnect PROPERTIES TIMEOUT 10)
 
-add_executable(full_load_zero measurements/full_load/main.cpp measurements/full_load/capture.cpp)
-target_link_libraries(full_load_zero PRIVATE chassis_runtime)
-target_compile_options(full_load_zero PRIVATE -Wall -Wextra -Wpedantic -Werror)
-add_test(NAME full_load_zero_capture COMMAND ${Python3_EXECUTABLE}
- ${CMAKE_CURRENT_SOURCE_DIR}/tests/full_load_capture.py
- $<TARGET_FILE:full_load_zero> $<TARGET_FILE:production_usb_mock>)
-set_tests_properties(full_load_zero_capture PROPERTIES TIMEOUT 30)
 
-add_executable(fault_zero_worker measurements/fault_recovery/worker.cpp)
-target_link_libraries(fault_zero_worker PRIVATE chassis_runtime)
-target_compile_options(fault_zero_worker PRIVATE -Wall -Wextra -Wpedantic -Werror)
-add_test(NAME fault_recovery_contracts COMMAND ${Python3_EXECUTABLE}
- ${CMAKE_CURRENT_SOURCE_DIR}/tests/fault_recovery_contracts.py
- $<TARGET_FILE:fault_zero_worker> $<TARGET_FILE:production_usb_mock>)
-set_tests_properties(fault_recovery_contracts PROPERTIES TIMEOUT 25)
-add_test(NAME usb_unplug_contracts COMMAND ${Python3_EXECUTABLE}
- ${CMAKE_CURRENT_SOURCE_DIR}/tests/usb_unplug_contracts.py)
-
-add_executable(remote_loss measurements/remote_loss.cpp)
-target_link_libraries(remote_loss PRIVATE chassis_runtime)
-target_compile_options(remote_loss PRIVATE -Wall -Wextra -Wpedantic -Werror)
-
-add_executable(conventions measurements/conventions.cpp)
-target_link_libraries(conventions PRIVATE chassis_runtime)
-target_compile_options(conventions PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()

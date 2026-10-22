@@ -60,11 +60,6 @@ bool SensorDecoder::Consume(const bridge::Packet &packet, uint64_t host_us) {
       return false;
     const unsigned port = packet[10] - 1;
     auto &stream = streams_[port];
-    if (port == 1) {
-      ++latest_.peripheral.hi91.chunks;
-      latest_.peripheral.hi91.bytes += packet[11];
-      latest_.peripheral.hi91.last_chunk_host_us = host_us;
-    }
     const uint32_t sequence = U32(packet.data() + 16);
     if (stream.has_sequence && sequence != stream.sequence + 1) {
       stream.size = 0;
@@ -75,7 +70,6 @@ bool SensorDecoder::Consume(const bridge::Packet &packet, uint64_t host_us) {
       }
       if (port == 1) {
         hi91_time_guard_.Reject();
-        ++latest_.peripheral.hi91.gaps;
         latest_.control.imu.valid = false;
       }
     }
@@ -151,8 +145,6 @@ void SensorDecoder::ParseRemote(Stream &stream, uint64_t host_us) {
     ConsumeBytes(stream, 1);
     return;
   }
-  latest_.peripheral.sbus_failsafe = decoded.failsafe;
-  latest_.peripheral.sbus_frame_lost = decoded.frame_lost;
   // Match MCU priority: frame_lost is discarded before failsafe handling.
   if (decoded.frame_lost) {
     latest_.control.remote_disable_pose = false;
@@ -212,13 +204,11 @@ void SensorDecoder::ParseRemote(Stream &stream, uint64_t host_us) {
   ConsumeBytes(stream, 25);
 }
 void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
-  auto &diagnostics = latest_.peripheral.hi91;
   for (;;) {
     if (stream.size < 2)
       return;
     if (stream.bytes[0] != 0x5a || stream.bytes[1] != 0xa5) {
       hi91_time_guard_.Reject();
-      ++diagnostics.resync_bytes;
       ConsumeBytes(stream, 1);
       continue;
     }
@@ -228,7 +218,6 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
     if (payload > protocols::kHi91MaxPayloadLength ||
         payload < protocols::kHi91DataLength) {
       hi91_time_guard_.Reject();
-      ++diagnostics.length_errors;
       ConsumeBytes(stream, 1);
       continue;
     }
@@ -240,17 +229,14 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
                                                   strict_crc_, &decoded);
     if (result) {
       hi91_time_guard_.Reject();
-      ++diagnostics.decode_errors;
       ConsumeBytes(stream, 1);
       continue;
     }
-    diagnostics.last_candidate_ms = decoded.system_time_ms;
     if (!std::isfinite(decoded.pitch_deg) ||
         std::abs(decoded.pitch_deg) >
             modules::hi91_imu_params::kHi91MaximumValidPitchDeg ||
         !std::isfinite(decoded.roll_deg) || !std::isfinite(decoded.yaw_deg)) {
       hi91_time_guard_.Reject();
-      ++diagnostics.attitude_errors;
       ConsumeBytes(stream, 1);
       continue;
     }
@@ -260,7 +246,6 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
                std::isfinite(decoded.accel_g[i]);
     if (!finite) {
       hi91_time_guard_.Reject();
-      ++diagnostics.nonfinite_errors;
       ConsumeBytes(stream, size);
       continue;
     }
@@ -272,15 +257,9 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
     if (!hi91_time_guard_.Accept(
             decoded.system_time_ms, timestamp,
             modules::chassis_config::kImuTimeoutMs * 1000ULL, crc_valid)) {
-      diagnostics.last_rejected_ms = decoded.system_time_ms;
-      if (decoded.system_time_ms == hi91_sensor_time_)
-        ++diagnostics.equal_time;
-      else
-        ++diagnostics.backward_time;
       ConsumeBytes(stream, size);
       continue;
     }
-    diagnostics.time_rebases = hi91_time_guard_.rebases();
     auto &imu = latest_.control.imu;
     imu = {};
     imu.sequence = ++imu_sequence_;
@@ -296,9 +275,6 @@ void SensorDecoder::ParseHi91(Stream &stream, uint64_t timestamp) {
     imu.yaw_rate_rad_s = decoded.gyro_dps[2] * radians;
     std::copy_n(decoded.accel_g, 3, imu.accel_g);
     imu.vertical_accel_g = decoded.accel_g[2];
-    ++diagnostics.accepted;
-    diagnostics.last_accepted_ms = decoded.system_time_ms;
-    hi91_sensor_time_ = decoded.system_time_ms;
 
     ConsumeBytes(stream, size);
   }

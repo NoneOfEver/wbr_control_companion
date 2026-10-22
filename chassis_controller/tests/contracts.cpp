@@ -105,7 +105,6 @@ int main() {
   CHECK(!time_guard.Accept(10, 10000, 3000, true));
   CHECK(!time_guard.Accept(11, 11000, 3000, true));
   CHECK(time_guard.Accept(12, 12000, 3000, true));
-  CHECK(time_guard.rebases() == 1);
   CHECK(!time_guard.Accept(12, 13000, 3000, true));
   CHECK(time_guard.Accept(13, 14000, 3000, true));
   CHECK(!time_guard.Accept(1, 20000, 3000, false)); // corrupt reboot candidate
@@ -114,11 +113,9 @@ int main() {
                            true)); // reorder restarts qualification
   CHECK(!time_guard.Accept(2, 23000, 3000, true));
   CHECK(time_guard.Accept(3, 24000, 3000, true));
-  CHECK(time_guard.rebases() == 2);
   time_guard.Reset();
   CHECK(time_guard.Accept(0xfffffffeU, 1000, 3000, true));
   CHECK(time_guard.Accept(1, 2000, 3000, true)); // ordinary uint32 wrap
-  CHECK(time_guard.rebases() == 0);
   time_guard.Reset();
   CHECK(time_guard.Accept(100000, 1000, 3000, true));
   CHECK(!time_guard.Accept(1, 10000, 3000, true));
@@ -205,10 +202,8 @@ int main() {
   CHECK(decoder.Consume(Uart(1, 5, safe.data(), 25), 2000));
   CHECK(!store.Read().control.remote_disable_pose &&
         !store.Read().control.remote.robot_enable);
-  CHECK(store.Read().peripheral.sbus_failsafe);
   safe[23] = 4;
   CHECK(decoder.Consume(Uart(1, 6, safe.data(), 25), 2000));
-  CHECK(store.Read().peripheral.sbus_frame_lost);
   CHECK(!store.Read().control.remote.robot_enable);
   modules::ChassisInputReader freshness;
   modules::ChassisCycleInput checked{};
@@ -280,11 +275,6 @@ int main() {
   CHECK(decoder.Consume(Uart(2, 5, hi91.data() + 80, 2), 3000));
   CHECK(store.Read().control.imu.sequence ==
         sequence); // duplicate sensor time cannot refresh state
-  const auto hi91_diagnostics = store.Read().peripheral.hi91;
-  CHECK(hi91_diagnostics.chunks == 6 && hi91_diagnostics.bytes == 164);
-  CHECK(hi91_diagnostics.accepted == 1 && hi91_diagnostics.equal_time == 1);
-  CHECK(hi91_diagnostics.backward_time == 0 &&
-        hi91_diagnostics.decode_errors == 0);
   bridge::Packet can{};
   bridge::Header(can.data(), bridge::Kind::Can, 10, 7);
   can[10] = 1;

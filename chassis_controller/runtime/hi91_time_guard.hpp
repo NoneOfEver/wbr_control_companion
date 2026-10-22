@@ -34,11 +34,9 @@ public:
     // Require a real observation interval, not three buffered frames at once.
     if (candidates_ < 3 || sample_us - first_candidate_us_ < 2000)
       return false;
-    ++rebases_;
     Commit(device_ms, sample_us);
     return true;
   }
-  uint32_t rebases() const { return rebases_; }
 
 private:
   void Commit(uint32_t device_ms, uint64_t sample_us) {
@@ -48,7 +46,7 @@ private:
     Reject();
   }
   bool has_time_ = false;
-  uint32_t accepted_ms_ = 0, candidate_ms_ = 0, rebases_ = 0;
+  uint32_t accepted_ms_ = 0, candidate_ms_ = 0;
   unsigned candidates_ = 0;
   uint64_t accepted_us_ = 0, candidate_us_ = 0, first_candidate_us_ = 0;
 };

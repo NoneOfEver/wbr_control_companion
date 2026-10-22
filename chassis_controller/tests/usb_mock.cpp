@@ -11,7 +11,6 @@
 #include <mutex>
 #include <protocols/imu/hi91_protocol.h>
 #include <wbr_bridge/bridge_protocol.hpp>
-#include <wbr_bridge/fault_diagnostics.hpp>
 
 struct libusb_context {};
 struct libusb_device_handle {};
@@ -101,25 +100,6 @@ void Process(libusb_transfer *transfer) {
     wire::Put32(reply.data() + 16, std::getenv("WBR_MOCK_BAD_CAPS") ? 0 : 15);
     wire::Put32(reply.data() + 20, 128);
     wire::Put32(reply.data() + 24, 64);
-    if (std::getenv("WBR_MOCK_UART")) {
-      wire::Put32(reply.data() + 28, 0x33545255);
-      wire::Put32(reply.data() + 32, 3);
-      wire::Put32(reply.data() + 36, command_count);
-      wire::Put32(reply.data() + 40, command_count + 1);
-      wire::Put32(reply.data() + 48, command_count + 1);
-      wire::Put32(reply.data() + 56, 128);
-      wire::Put32(reply.data() + 60, 103 | (25U << 16));
-    }
-    if (std::getenv("WBR_MOCK_FULL_LOAD")) {
-      wire::Put32(reply.data() + 28, 0x34545255);
-      wire::Put32(reply.data() + 32, 19);
-    }
-    if (data[10] == wire::kFaultQueryPage &&
-        std::getenv("WBR_MOCK_FAULT_DIAG")) {
-      wire::FaultSnapshot diagnostic{command_count, 0,      2, 3,
-                                     100000,        120100, 2, 0};
-      wire::EncodeFaultSnapshot(reply, diagnostic);
-    }
     if (std::getenv("WBR_MOCK_OLD_FIRMWARE"))
       wire::Put32(reply.data(), 0x314b4341);
     replies.push_back(reply);

@@ -35,11 +35,6 @@ bool UsbLink::healthy() const {
   return now_us - received_us < bridge::kCommandTimeoutUs;
 }
 
-UsbStartupTiming UsbLink::startup_timing() const {
-  return {event_start_ns_.load(), configured_ns_.load(),
-          first_input_ns_.load(), inputs_ready_ns_.load(),
-          hello_ns_.load(),       ready_ns_.load()};
-}
 bool UsbLink::Open() {
   if (libusb_init(&context_))
     return Fail("Cannot initialize USB");
@@ -106,8 +101,6 @@ bool UsbLink::Open() {
   }
   bridge::Packet hello{};
   bridge::Header(hello.data(), bridge::Kind::Hello, 0, session_);
-  hello[10] = options_.ready_query_page;
-  hello_ns_ = rt::MonotonicTimeNs();
   if (!Transmit(hello.data(), hello.size()))
     return false;
   std::unique_lock<std::mutex> lock(mutex_);
@@ -128,9 +121,6 @@ void UsbLink::Submit(Input &input) {
     input.pending = false;
     --active_;
     Fail("USB IN submit");
-  } else if (!first_input_ns_.load()) {
-    uint64_t zero = 0;
-    first_input_ns_.compare_exchange_strong(zero, rt::MonotonicTimeNs());
   }
 }
 void LIBUSB_CALL UsbLink::Receive(libusb_transfer *transfer) {
@@ -142,9 +132,6 @@ void LIBUSB_CALL UsbLink::Receive(libusb_transfer *transfer) {
     return;
   if (transfer->status != LIBUSB_TRANSFER_COMPLETED ||
       transfer->actual_length != 64) {
-    if (self.options_.fault_trace)
-      self.options_.fault_trace(self.options_.observer_context, 1,
-                                transfer->status, rt::MonotonicTimeNs(), 0);
     self.Fail("USB IN status=" + std::to_string(int(transfer->status)) +
               " actual_length=" + std::to_string(transfer->actual_length) +
               " expected_length=64");
@@ -166,22 +153,14 @@ void LIBUSB_CALL UsbLink::Receive(libusb_transfer *transfer) {
         self.Fail("Bridge CAN/remote/HI91 capability missing");
         return;
       }
-      self.ready_ns_ = rt::MonotonicTimeNs();
       self.capabilities_ = bridge::U32(packet.data() + 16);
       self.decoder_.Reset();
-      if (self.options_.observe) {
-        const auto now = rt::MonotonicTimeNs();
-        self.options_.observe(self.options_.observer_context, packet, now, now);
-      }
       self.ready_ = true;
       self.ready_cv_.notify_all();
     } else if (self.ready_) {
       const uint64_t arrival_ns = rt::MonotonicTimeNs();
       if (!self.decoder_.Consume(packet, arrival_ns / 1000))
         self.Fail("Malformed bridge sensor packet");
-      else if (self.options_.observe)
-        self.options_.observe(self.options_.observer_context, packet,
-                              arrival_ns, rt::MonotonicTimeNs());
     }
   }
   if (!self.closing_ && !self.failed_)
@@ -191,16 +170,8 @@ void LIBUSB_CALL UsbLink::Sent(libusb_transfer *transfer) {
   auto &output = *static_cast<Output *>(transfer->user_data);
   auto &self = *output.owner;
   --self.active_;
-  if (transfer->length == bridge::kOutBytes && self.options_.command_completed)
-    self.options_.command_completed(
-        self.options_.observer_context,
-        transfer->status == LIBUSB_TRANSFER_COMPLETED &&
-            transfer->actual_length == transfer->length);
   if (!self.closing_ && (transfer->status != LIBUSB_TRANSFER_COMPLETED ||
                          transfer->actual_length != transfer->length)) {
-    if (self.options_.fault_trace)
-      self.options_.fault_trace(self.options_.observer_context, 2,
-                                transfer->status, rt::MonotonicTimeNs(), 0);
     self.Fail("USB OUT status=" + std::to_string(int(transfer->status)) +
               " actual_length=" + std::to_string(transfer->actual_length) +
               " expected_length=" + std::to_string(transfer->length));
@@ -247,19 +218,16 @@ void UsbLink::Stop() {
   ready_ = false;
 }
 void UsbLink::Events() {
-  event_start_ns_ = rt::MonotonicTimeNs();
   std::string error;
   if (options_.realtime &&
       !rt::ConfigureCurrentThread(options_.cpu, options_.priority, error))
     Fail("USB realtime setup: " + error);
-  configured_ns_ = rt::MonotonicTimeNs();
   if (!failed_)
     for (auto &input : inputs_)
       Submit(input);
   if (!failed_) {
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      inputs_ready_ns_ = rt::MonotonicTimeNs();
       inputs_ready_ = true;
     }
     ready_cv_.notify_all();
@@ -290,13 +258,8 @@ void UsbLink::Events() {
     if (ready_ && !failed_ && !closing_)
       decoder_.PollRemoteTimeout(rt::MonotonicTimeNs() / 1000);
     timeval timeout{0, decoder_.remote_timeout_pending() ? 1000 : 20000};
-    const uint64_t call_start =
-        options_.fault_trace ? rt::MonotonicTimeNs() : 0;
     const int result =
         libusb_handle_events_timeout_completed(context_, &timeout, nullptr);
-    if (options_.fault_trace)
-      options_.fault_trace(options_.observer_context, 0, result, call_start,
-                           rt::MonotonicTimeNs());
     if (result && result != LIBUSB_ERROR_INTERRUPTED)
       Fail("USB event handling error");
   }

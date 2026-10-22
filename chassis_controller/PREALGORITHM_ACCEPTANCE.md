@@ -1,3 +1,5 @@
+> 历史记录：2026-10-22 已撤掉旧现场采集/压力测试与运行时诊断。本文中的旧脚本、诊断开关和构建路径不再是当前操作指令；清理状态见 `docs/PRODUCTION_CLEANUP_2026-10-22.md`。
+
 # Acceptance before running the migrated controller on the robot
 
 The host USB startup order is fixed. UART10 line-idle remains an opt-in MCU
